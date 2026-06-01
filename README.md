@@ -14,11 +14,12 @@ Pick a city and tasks (laundry, EV charging, dishwasher, ventilation), choose yo
 
 - **Primary + backup windows** with exact start/end times
 - **Carbon saving** vs the evening-peak baseline (kg CO₂)
-- **Cost saving** vs the evening-peak baseline (£, Octopus Agile pricing)
+- **Cost saving** vs the evening-peak baseline (UK only — £, Octopus Agile pricing; EU cities show carbon only)
 - **One-line reason** explaining why this window was chosen
 - **7-day outlook** with an AI-generated weekly brief (Groq)
 - **Scenario comparison** — all three optimisation modes side by side
 - **Plan history** with ✓/✗ follow-through feedback
+- **Light/dark theme**, an interactive (zoomable) 48-hour chart, and a first-run product tour
 
 ---
 
@@ -113,7 +114,7 @@ cd backend
 .venv/bin/python -m pytest tests/ -v
 ```
 
-29 unit tests covering the scoring engine, scheduler, and savings calculator. All pure functions — no mocking, no network.
+30 unit tests covering the scoring engine, scheduler, and savings calculator. All pure functions — no mocking, no network.
 
 ---
 
@@ -178,7 +179,7 @@ Modes: `balanced` · `green` · `money`
 │   │   ├── providers/           carbon_uk · carbon_fr · carbon_be · price_octopus · weather_openmeteo · brief_groq
 │   │   └── core/                scoring · scheduler · savings · tasks · city_registry
 │   └── tests/
-│       └── test_core.py         29 unit tests
+│       └── test_core.py         30 unit tests
 ├── frontend/
 │   └── src/
 │       ├── App.jsx

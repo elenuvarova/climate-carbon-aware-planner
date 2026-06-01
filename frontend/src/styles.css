@@ -264,7 +264,18 @@ body {
   background: var(--blue-dim);
   border-color: var(--blue);
   color: var(--blue);
-  cursor: default;
+  font-weight: 600;
+}
+
+/* Active chip reveals a × affordance on hover to signal it's removable */
+.chip.active::after {
+  content: " ✕";
+  font-size: 0.75em;
+  opacity: 0.55;
+}
+.chip.active:hover {
+  border-color: var(--red);
+  color: var(--red);
 }
 
 /* ─── Task list ──────────────────────────────────────────────────────────── */
@@ -892,6 +903,149 @@ body {
 
 .feedback-btn:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
 .feedback-btn.sent { border-color: var(--green); color: var(--green); cursor: default; }
+
+/* ─── Hero actions (tour + theme) ────────────────────────────────────────── */
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+.tour-launch {
+  height: 36px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border2);
+  background: var(--surface);
+  color: var(--text2);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--tx);
+  white-space: nowrap;
+}
+
+.tour-launch:hover { border-color: var(--blue); color: var(--blue); }
+
+/* ─── Tour ───────────────────────────────────────────────────────────────── */
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  animation: tour-fade 0.2s ease;
+}
+
+@keyframes tour-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.tour-spotlight {
+  position: fixed;
+  border-radius: var(--r-lg);
+  border: 2px solid var(--green);
+  box-shadow: 0 0 0 9999px rgba(2, 6, 12, 0.68);
+  transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+  pointer-events: none;
+  z-index: 1001;
+}
+
+[data-theme="light"] .tour-spotlight {
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45);
+}
+
+.tour-card {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(380px, calc(100vw - 2 * var(--sp-4)));
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  z-index: 1002;
+}
+
+.tour-card.at-bottom { bottom: var(--sp-6); }
+.tour-card.at-top    { top: var(--sp-6); }
+
+.tour-step-count {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin-bottom: var(--sp-2);
+}
+
+.tour-title {
+  font-size: var(--t-lg);
+  font-weight: 700;
+  margin-bottom: var(--sp-2);
+}
+
+.tour-body {
+  font-size: var(--t-sm);
+  color: var(--text2);
+  line-height: 1.6;
+  margin-bottom: var(--sp-4);
+}
+
+.tour-dots {
+  display: flex;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+}
+
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--border2);
+  transition: background var(--tx), width var(--tx);
+}
+.tour-dot.on { background: var(--green); width: 18px; }
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.tour-nav { display: flex; gap: var(--sp-2); }
+
+.tour-skip {
+  background: none;
+  border: none;
+  color: var(--text3);
+  font-size: var(--t-sm);
+  cursor: pointer;
+  padding: var(--sp-2);
+  transition: color var(--tx);
+}
+.tour-skip:hover { color: var(--text); }
+
+.tour-btn {
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--tx);
+}
+.tour-btn:hover { border-color: var(--text3); }
+
+.tour-btn.primary {
+  background: var(--green);
+  border-color: var(--green);
+  color: #0a1a0f;
+}
+.tour-btn.primary:hover { filter: brightness(1.08); }
 
 /* ─── Misc ───────────────────────────────────────────────────────────────── */
 

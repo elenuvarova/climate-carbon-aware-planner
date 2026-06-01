@@ -296,6 +296,27 @@ def test_find_windows_overnight_ev():
     assert end.astimezone(UTC) <= dl
 
 
+def test_find_windows_overnight_allows_post_midnight_start():
+    """Regression: with a deadline, the cleanest small-hours slots must be
+    eligible — not dropped by a time-of-day lower bound (was a real bug)."""
+    # Window opens 22:00 BST on 10 Jun; deadline 08:00 BST (07:00 UTC) on 11 Jun.
+    idx = pd.date_range(start="2024-06-10 21:00", periods=24, freq="30min", tz="UTC")
+    # CI falls through the night → cleanest grid is in the small hours after midnight.
+    ci = np.linspace(300.0, 60.0, num=24)
+    df = pd.DataFrame({"ci_gco2": ci}, index=idx)
+    df = add_global_scores(df)
+    fit = task_fit_scores(df, weather_profile=None, mode="green")
+    dl = datetime(2024, 6, 11, 7, 0, tzinfo=UTC)
+    windows = find_windows(fit, 120, "22:00", "23:59", abs_deadline=dl, tz=LONDON)
+    assert len(windows) >= 1
+    start, end, _ = windows[0]
+    start_local = start.astimezone(LONDON)
+    # The chosen start must be after midnight (calendar day 11), proving post-midnight
+    # slots are reachable. The buggy version forced a 22:xx start on day 10.
+    assert start_local.day == 11
+    assert end.astimezone(UTC) <= dl
+
+
 # ── savings.compute_savings ──────────────────────────────────────────────────
 
 

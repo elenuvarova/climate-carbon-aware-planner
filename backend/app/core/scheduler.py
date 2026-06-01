@@ -33,6 +33,18 @@ def _valid_starts(
             dl_local = dl_local + timedelta(days=1)
         abs_deadline = dl_local.astimezone(timezone.utc)
 
+    # When a deadline applies the window may span midnight, so the lower bound is
+    # an absolute instant (window_start on the eve of the deadline), NOT a daily
+    # time-of-day. Gating on time-of-day would wrongly drop every post-midnight
+    # start — exactly the cleanest small-hours slots an overnight task wants.
+    abs_window_start: datetime | None = None
+    if abs_deadline is not None:
+        dl_local = abs_deadline.astimezone(tz)
+        ws_local = dl_local.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+        if ws_local >= dl_local:
+            ws_local -= timedelta(days=1)
+        abs_window_start = ws_local.astimezone(timezone.utc)
+
     valid = []
     for slot_utc in slots:
         slot_local = slot_utc.astimezone(tz)
@@ -44,8 +56,8 @@ def _valid_starts(
         if abs_deadline:
             if (slot_utc + duration) > abs_deadline:
                 continue
-            # With a deadline the task may legally span midnight (overnight charging etc.)
-            if slot_tod < ws_tod:
+            # Task may legally span midnight: only reject starts before the window opens.
+            if abs_window_start is not None and slot_utc < abs_window_start:
                 continue
         else:
             # No deadline: task must fit entirely within the daily window, same calendar day

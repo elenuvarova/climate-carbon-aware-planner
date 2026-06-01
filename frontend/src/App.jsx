@@ -7,9 +7,9 @@ import {
 // ── constants ──────────────────────────────────────────────────────────────
 
 const CITIES = [
-  { id: "london",  label: "🇬🇧 London",  tz: "Europe/London"   },
-  { id: "paris",   label: "🇫🇷 Paris",   tz: "Europe/Paris"    },
-  { id: "antwerp", label: "🇧🇪 Antwerp", tz: "Europe/Brussels" },
+  { id: "london",  label: "🇬🇧 London",  tz: "Europe/London",   currency: "£" },
+  { id: "paris",   label: "🇫🇷 Paris",   tz: "Europe/Paris",    currency: "€" },
+  { id: "antwerp", label: "🇧🇪 Antwerp", tz: "Europe/Brussels", currency: "€" },
 ];
 
 const MODES = [
@@ -37,6 +37,34 @@ const CHART_COLORS = {
   dark:  { green: "#4ade80", blue: "#7dd3fc", yellow: "#fbbf24", grid: "#1c2128", tick: "#6b7280", brush: "#30363d", brushFill: "#161b22" },
   light: { green: "#16a34a", blue: "#0369a1", yellow: "#d97706", grid: "#e2e8f0", tick: "#94a3b8", brush: "#cbd5e1", brushFill: "#f0f4f8" },
 };
+
+const TOUR_STEPS = [
+  {
+    sel: '[data-tour="city"]',
+    title: "1 · Pick a city",
+    body: "London has live carbon + price data. Paris and Antwerp use real carbon data (no local prices yet).",
+  },
+  {
+    sel: '[data-tour="mode"]',
+    title: "2 · Choose your priority",
+    body: "Go Green leans on the carbon signal, Save Money on price, Balanced splits the difference.",
+  },
+  {
+    sel: '[data-tour="tasks"]',
+    title: "3 · Add your tasks",
+    body: "Tap a chip to add a task — tap it again to remove. Set how long it runs and the window it can run in.",
+  },
+  {
+    sel: '[data-tour="actions"]',
+    title: "4 · Get your plan",
+    body: "See the best time windows, compare all three modes, view a 7-day outlook, or revisit past plans.",
+  },
+  {
+    sel: '[data-tour="theme"]',
+    title: "Light or dark",
+    body: "Toggle the theme any time — your choice is remembered.",
+  },
+];
 
 // ── theme hook ─────────────────────────────────────────────────────────────
 
@@ -78,6 +106,84 @@ function ThemeToggle({ theme, onToggle }) {
     >
       {theme === "dark" ? "☀" : "☾"}
     </button>
+  );
+}
+
+function Tour({ steps, onClose }) {
+  const [i, setI] = useState(0);
+  const [rect, setRect] = useState(null);
+  const step = steps[i];
+  const isLast = i === steps.length - 1;
+
+  useEffect(() => {
+    const el = document.querySelector(step.sel);
+    if (!el) { setRect(null); return; }
+
+    // Scroll the target into view once per step…
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+
+    // …then just track its position on scroll/resize (no re-scroll → no jitter).
+    const measure = () => setRect(el.getBoundingClientRect());
+    measure();
+    const t = setTimeout(measure, 320); // settle after the smooth scroll
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [step]);
+
+  // Place the card opposite the highlighted element so it never covers it.
+  const cardAtTop = rect ? rect.top > window.innerHeight / 2 : false;
+
+  function onKey(e) {
+    if (e.key === "Escape") onClose();
+    else if (e.key === "ArrowRight" || e.key === "Enter") isLast ? onClose() : setI(i + 1);
+    else if (e.key === "ArrowLeft") i > 0 && setI(i - 1);
+  }
+
+  useEffect(() => {
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  return (
+    <div className="tour-overlay" role="dialog" aria-modal="true" aria-label="Product tour">
+      {rect && (
+        <div
+          className="tour-spotlight"
+          style={{
+            top: rect.top - 8,
+            left: rect.left - 8,
+            width: rect.width + 16,
+            height: rect.height + 16,
+          }}
+        />
+      )}
+      <div className={`tour-card${cardAtTop ? " at-top" : " at-bottom"}`}>
+        <div className="tour-step-count">{i + 1} / {steps.length}</div>
+        <h4 className="tour-title">{step.title}</h4>
+        <p className="tour-body">{step.body}</p>
+        <div className="tour-dots">
+          {steps.map((_, n) => (
+            <span key={n} className={`tour-dot${n === i ? " on" : ""}`} />
+          ))}
+        </div>
+        <div className="tour-actions">
+          <button className="tour-skip" onClick={onClose}>Skip</button>
+          <div className="tour-nav">
+            {i > 0 && (
+              <button className="tour-btn" onClick={() => setI(i - 1)}>Back</button>
+            )}
+            <button className="tour-btn primary" onClick={() => isLast ? onClose() : setI(i + 1)}>
+              {isLast ? "Got it" : "Next"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -132,7 +238,7 @@ function ErrorCard({ message, onRetry }) {
 
 // ── feature components ─────────────────────────────────────────────────────
 
-function RecCard({ rec, tz }) {
+function RecCard({ rec, tz, currency = "£" }) {
   return (
     <div className="rec-card">
       <div className="rec-header">
@@ -160,7 +266,7 @@ function RecCard({ rec, tz }) {
           <span className="saving-pill co2">↓ {rec.carbon_saved_kg.toFixed(1)} kg CO₂</span>
         )}
         {rec.cost_saved_gbp > 0.01 && (
-          <span className="saving-pill cost">↓ £{rec.cost_saved_gbp.toFixed(2)}</span>
+          <span className="saving-pill cost">↓ {currency}{rec.cost_saved_gbp.toFixed(2)}</span>
         )}
       </div>
       <p className="rec-reason">{rec.reason}</p>
@@ -296,7 +402,7 @@ function WeeklyView({ result, tz }) {
   );
 }
 
-function CompareView({ result, tz }) {
+function CompareView({ result, tz, currency = "£" }) {
   if (!result) return null;
   const modeLabels = { balanced: "⚖️ Balanced", green: "💚 Go Green", money: "💰 Save Money" };
 
@@ -319,7 +425,7 @@ function CompareView({ result, tz }) {
             {["balanced", "green", "money"].map(mode => (
               <div key={mode} className="compare-col">
                 <div className="compare-mode-label">{modeLabels[mode]}</div>
-                <RecCard rec={group[mode]} tz={tz} />
+                <RecCard rec={group[mode]} tz={tz} currency={currency} />
               </div>
             ))}
           </div>
@@ -422,15 +528,33 @@ export default function App() {
   const [error,      setError]      = useState(null);
   const [lastAction, setLastAction] = useState(null);
 
-  const cityTz = CITIES.find(c => c.id === city)?.tz ?? "Europe/London";
+  const [tourOpen, setTourOpen] = useState(false);
+
+  const cityCfg  = CITIES.find(c => c.id === city) ?? CITIES[0];
+  const cityTz   = cityCfg.tz;
+  const currency = cityCfg.currency;
+
+  // Auto-start the tour once for first-time visitors.
+  useEffect(() => {
+    if (!localStorage.getItem("cp-tour-done")) {
+      const t = setTimeout(() => setTourOpen(true), 650);
+      return () => clearTimeout(t);
+    }
+  }, []);
+
+  function closeTour() {
+    setTourOpen(false);
+    localStorage.setItem("cp-tour-done", "1");
+  }
 
   function clearResults() {
     setResult(null); setCompare(null); setWeekly(null); setHistory(null); setError(null);
   }
 
-  function addTask(type) {
-    if (tasks.find(t => t.id === type.id)) return;
-    setTasks(prev => [...prev, { ...type, duration_mins: type.defaultDuration }]);
+  function toggleTask(type) {
+    setTasks(prev => prev.find(t => t.id === type.id)
+      ? prev.filter(t => t.id !== type.id)
+      : [...prev, { ...type, duration_mins: type.defaultDuration }]);
   }
 
   function removeTask(id) {
@@ -538,11 +662,21 @@ export default function App() {
           <h1>Climate &amp; Carbon-Aware <span>Planner</span></h1>
           <p className="muted">Find the best time for your tasks — low-carbon, low-cost, weather-ready</p>
         </div>
-        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+        <div className="hero-actions" data-tour="theme">
+          <button
+            className="tour-launch"
+            onClick={() => setTourOpen(true)}
+            aria-label="Take a tour"
+            title="Take a tour"
+          >
+            ? Tour
+          </button>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+        </div>
       </header>
 
       {/* City */}
-      <div className="card">
+      <div className="card" data-tour="city">
         <div className="card-title">City</div>
         <div className="btn-group">
           {CITIES.map(c => (
@@ -565,7 +699,7 @@ export default function App() {
       </div>
 
       {/* Mode */}
-      <div className="card">
+      <div className="card" data-tour="mode">
         <div className="card-title">Optimise for</div>
         <div className="btn-group">
           {MODES.map(m => (
@@ -581,7 +715,7 @@ export default function App() {
       </div>
 
       {/* Task builder */}
-      <div className="card">
+      <div className="card" data-tour="tasks">
         <div className="card-title">Tasks</div>
 
         <div className="chip-row">
@@ -589,9 +723,9 @@ export default function App() {
             <button
               key={t.id}
               className={`chip${addedIds.has(t.id) ? " active" : ""}`}
-              onClick={() => addTask(t)}
-              disabled={addedIds.has(t.id)}
+              onClick={() => toggleTask(t)}
               aria-pressed={addedIds.has(t.id)}
+              title={addedIds.has(t.id) ? "Tap to remove" : "Tap to add"}
             >
               {t.label}
             </button>
@@ -641,7 +775,7 @@ export default function App() {
           </div>
         )}
 
-        <div className="action-row">
+        <div className="action-row" data-tour="actions">
           <button
             className="btn-primary"
             onClick={getPlan}
@@ -695,7 +829,7 @@ export default function App() {
             {result.carbon_label && <span className="carbon-label"> · {result.carbon_label}</span>}
           </p>
           {result.recommendations.map((r, i) => (
-            <RecCard key={i} rec={r} tz={cityTz} />
+            <RecCard key={i} rec={r} tz={cityTz} currency={currency} />
           ))}
           <Timeline
             slots={result.slots}
@@ -709,7 +843,7 @@ export default function App() {
       {/* Comparison */}
       {!loading && compare && (
         <>
-          <CompareView result={compare} tz={cityTz} />
+          <CompareView result={compare} tz={cityTz} currency={currency} />
           <Timeline
             slots={compare.slots}
             recommendations={compare.modes.balanced}
@@ -730,6 +864,9 @@ export default function App() {
           feedbackSent={feedbackSent}
         />
       )}
+
+      {/* Onboarding tour */}
+      {tourOpen && <Tour steps={TOUR_STEPS} onClose={closeTour} />}
     </div>
   );
 }
