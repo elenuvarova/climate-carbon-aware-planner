@@ -277,6 +277,7 @@ body {
   font-size: 0.8em;
   line-height: 1;
   opacity: 0.6;
+  margin-left: 2px;
   transform: translateY(0.5px);
 }
 .chip.active:hover {
