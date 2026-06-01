@@ -1,0 +1,27 @@
+# Node
+node_modules/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Env & secrets
+.env
+.env.local
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# DB
+*.sqlite
+*.sqlite-journal

@@ -1,0 +1,185 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0d1117;
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+
+/* ── Layout ── */
+.container { max-width: 860px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+/* ── Hero ── */
+.hero { margin-bottom: 2rem; }
+.hero h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+.hero h1 span { color: #4ade80; }
+.hero p { margin-top: .4rem; color: #94a3b8; font-size: .95rem; }
+
+/* ── Cards ── */
+.card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1rem;
+}
+.card-title {
+  font-size: .8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #7dd3fc;
+  margin-bottom: 1rem;
+}
+
+/* ── Mode selector ── */
+.mode-group { display: flex; gap: .5rem; flex-wrap: wrap; }
+.mode-btn {
+  padding: .45rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  background: transparent;
+  color: #94a3b8;
+  font-size: .875rem;
+  cursor: pointer;
+  transition: all .15s;
+}
+.mode-btn:hover { border-color: #4ade80; color: #e2e8f0; }
+.mode-btn.active { background: #1a3326; border-color: #4ade80; color: #4ade80; font-weight: 600; }
+
+/* ── Task builder ── */
+.task-chips { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.chip {
+  padding: .4rem .85rem;
+  border-radius: 20px;
+  border: 1px solid #30363d;
+  background: transparent;
+  color: #94a3b8;
+  font-size: .82rem;
+  cursor: pointer;
+  transition: all .15s;
+}
+.chip:hover { border-color: #7dd3fc; color: #e2e8f0; }
+.chip.active { background: #0e2233; border-color: #7dd3fc; color: #7dd3fc; }
+
+.task-list { display: flex; flex-direction: column; gap: .5rem; }
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: .6rem .9rem;
+  font-size: .85rem;
+  flex-wrap: wrap;
+}
+.task-row label { color: #94a3b8; font-size: .78rem; }
+.task-row input[type="time"],
+.task-row input[type="number"] {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  color: #e2e8f0;
+  padding: .2rem .4rem;
+  font-size: .82rem;
+  width: 6rem;
+}
+.task-row input[type="number"] { width: 4.5rem; }
+.task-name { font-weight: 500; flex: 1 1 120px; }
+.remove-btn {
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 .25rem;
+  line-height: 1;
+}
+.remove-btn:hover { color: #f87171; }
+
+/* ── Actions ── */
+.plan-btn {
+  display: block;
+  width: 100%;
+  padding: .75rem;
+  margin-top: 1rem;
+  border-radius: 8px;
+  border: none;
+  background: #4ade80;
+  color: #0d1117;
+  font-weight: 700;
+  font-size: .95rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+.plan-btn:hover:not(:disabled) { background: #22c55e; }
+.plan-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ── Results ── */
+.results-header {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin: 1.5rem 0 .75rem;
+}
+
+/* ── Recommendation card ── */
+.rec-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 1.1rem 1.4rem;
+  margin-bottom: .75rem;
+}
+.rec-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.rec-task { font-weight: 600; font-size: .95rem; }
+.rec-score {
+  font-size: .75rem;
+  font-weight: 600;
+  background: #1a3326;
+  color: #4ade80;
+  border-radius: 12px;
+  padding: .15rem .6rem;
+}
+.rec-windows { display: flex; gap: 1.25rem; margin: .65rem 0; flex-wrap: wrap; }
+.rec-window-block { font-size: .82rem; }
+.rec-window-label { color: #94a3b8; margin-right: .3rem; }
+.rec-window-time { font-family: monospace; color: #7dd3fc; }
+.rec-backup-time { font-family: monospace; color: #94a3b8; }
+.rec-savings {
+  display: flex;
+  gap: .75rem;
+  margin: .5rem 0;
+  flex-wrap: wrap;
+}
+.saving-pill {
+  font-size: .78rem;
+  padding: .2rem .6rem;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.saving-pill.co2 { background: #1a2e1a; color: #86efac; }
+.saving-pill.cost { background: #1e2a1a; color: #bef264; }
+.rec-reason {
+  font-size: .82rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin-top: .5rem;
+}
+
+/* ── Timeline chart ── */
+.chart-wrap { margin-top: 1.5rem; }
+.chart-wrap h3 { font-size: .85rem; color: #94a3b8; margin-bottom: .75rem; }
+.recharts-cartesian-axis-tick text { fill: #6b7280 !important; font-size: 11px; }
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: #161b22 !important;
+  border: 1px solid #30363d !important;
+  border-radius: 6px !important;
+}
+
+/* ── Misc ── */
+.muted { color: #94a3b8; font-size: .875rem; }
+.error-msg { color: #f87171; font-size: .875rem; margin-top: .5rem; }
+.loading { color: #7dd3fc; font-size: .875rem; margin-top: 1rem; }
