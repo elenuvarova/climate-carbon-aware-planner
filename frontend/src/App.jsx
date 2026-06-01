@@ -329,7 +329,7 @@ export default function App() {
           <p className="city-note">
             {city === "paris"
               ? "Carbon: RTE éco2mix cyclical proxy · Price data not available"
-              : "Carbon: Open-Meteo renewable model (estimated) · Price data not available"}
+              : "Carbon: Elia open data ods192 (consumption-based CO₂) · Price data not available"}
           </p>
         )}
       </div>

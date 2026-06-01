@@ -10,3 +10,4 @@ cachetools==5.5.0
 groq>=0.11.0
 # psycopg2-binary is required only on Render (Postgres). Docker uses Python 3.12 where wheels exist.
 # Local dev uses SQLite; install manually if you need Postgres locally: pip install psycopg2-binary
+pytest>=8.0
