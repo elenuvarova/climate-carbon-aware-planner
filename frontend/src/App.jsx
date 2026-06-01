@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceLine, ResponsiveContainer, Legend,
+  ReferenceLine, ResponsiveContainer, Legend, Brush,
 } from "recharts";
 
 // ── constants ──────────────────────────────────────────────────────────────
@@ -13,39 +13,81 @@ const CITIES = [
 ];
 
 const MODES = [
-  { id: "balanced", label: "⚖️ Balanced" },
-  { id: "green",    label: "💚 Go Green" },
+  { id: "balanced", label: "⚖️ Balanced"   },
+  { id: "green",    label: "💚 Go Green"   },
   { id: "money",    label: "💰 Save Money" },
 ];
 
 const TASK_TYPES = [
-  { id: "laundry_airdry", label: "🌬️ Laundry (air-dry)", defaultDuration: 120, windowStart: "08:00", windowEnd: "20:00" },
-  { id: "laundry_dryer",  label: "🔄 Laundry + dryer",   defaultDuration: 120, windowStart: "08:00", windowEnd: "22:00" },
-  { id: "dishwasher",     label: "🍽️ Dishwasher",         defaultDuration: 90,  windowStart: "20:00", windowEnd: "23:00" },
-  { id: "ev_charge",      label: "⚡ EV / device charging", defaultDuration: 240, windowStart: "22:00", windowEnd: "23:59", deadline: "07:00" },
-  { id: "ventilation",    label: "🪟 Ventilate",           defaultDuration: 30,  windowStart: "07:00", windowEnd: "21:00" },
+  { id: "laundry_airdry", label: "🌬️ Laundry (air-dry)",    defaultDuration: 120, windowStart: "08:00", windowEnd: "20:00" },
+  { id: "laundry_dryer",  label: "🔄 Laundry + dryer",       defaultDuration: 120, windowStart: "08:00", windowEnd: "22:00" },
+  { id: "dishwasher",     label: "🍽️ Dishwasher",            defaultDuration: 90,  windowStart: "20:00", windowEnd: "23:00" },
+  { id: "ev_charge",      label: "⚡ EV charging",            defaultDuration: 240, windowStart: "22:00", windowEnd: "23:59", deadline: "07:00" },
+  { id: "ventilation",    label: "🪟 Ventilate",              defaultDuration: 30,  windowStart: "07:00", windowEnd: "21:00" },
 ];
+
+const LOADING_LABELS = {
+  plan:    "Fetching grid conditions…",
+  compare: "Running scenario comparison…",
+  weekly:  "Building 7-day outlook…",
+  history: "Loading plan history…",
+};
+
+const CHART_COLORS = {
+  dark:  { green: "#4ade80", blue: "#7dd3fc", yellow: "#fbbf24", grid: "#1c2128", tick: "#6b7280", brush: "#30363d", brushFill: "#161b22" },
+  light: { green: "#16a34a", blue: "#0369a1", yellow: "#d97706", grid: "#e2e8f0", tick: "#94a3b8", brush: "#cbd5e1", brushFill: "#f0f4f8" },
+};
+
+// ── theme hook ─────────────────────────────────────────────────────────────
+
+function useTheme() {
+  const [theme, setTheme] = useState(() => localStorage.getItem("cp-theme") || "dark");
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("cp-theme", theme);
+  }, [theme]);
+
+  const toggle = useCallback(() => setTheme(t => t === "dark" ? "light" : "dark"), []);
+  return [theme, toggle];
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function fmtTime(isoStr, tz = "Europe/London") {
   if (!isoStr) return "—";
-  const d = new Date(isoStr);
-  return d.toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: tz });
+  return new Date(isoStr).toLocaleString("en-GB", {
+    weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: tz,
+  });
 }
 
 function fmtAxis(isoStr, tz = "Europe/London") {
-  const d = new Date(isoStr);
-  return d.toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+  return new Date(isoStr).toLocaleString("en-GB", {
+    hour: "2-digit", minute: "2-digit", timeZone: tz,
+  });
+}
+
+// ── ui components ──────────────────────────────────────────────────────────
+
+function ThemeToggle({ theme, onToggle }) {
+  return (
+    <button
+      className="theme-toggle"
+      onClick={onToggle}
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+    >
+      {theme === "dark" ? "☀" : "☾"}
+    </button>
+  );
 }
 
 const CustomTooltip = ({ active, payload, label, tz }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#161b22", border: "1px solid #30363d", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
-      <p style={{ color: "#94a3b8", marginBottom: 4 }}>{fmtAxis(label, tz)}</p>
+    <div className="chart-tooltip">
+      <p className="chart-tooltip-time">{fmtAxis(label, tz)}</p>
       {payload.map(p => (
-        <p key={p.name} style={{ color: p.color }}>
+        <p key={p.name} style={{ color: p.color }} className="chart-tooltip-row">
           {p.name}: <b>{Math.round(p.value)}</b>
         </p>
       ))}
@@ -53,7 +95,42 @@ const CustomTooltip = ({ active, payload, label, tz }) => {
   );
 };
 
-// ── components ─────────────────────────────────────────────────────────────
+function SkeletonCard() {
+  return (
+    <div className="rec-card skeleton-card" aria-hidden="true">
+      <div className="sk-line sk-wide" />
+      <div className="sk-line sk-medium" />
+      <div className="sk-line sk-narrow" />
+    </div>
+  );
+}
+
+function LoadingResults({ action }) {
+  return (
+    <div className="loading-results" role="status" aria-live="polite">
+      <p className="results-header loading-header">{LOADING_LABELS[action] || "Loading…"}</p>
+      <SkeletonCard />
+      <SkeletonCard />
+    </div>
+  );
+}
+
+function ErrorCard({ message, onRetry }) {
+  return (
+    <div className="error-card" role="alert">
+      <span className="error-icon">⚠</span>
+      <div className="error-body">
+        <p className="error-title">Something went wrong</p>
+        <p className="error-detail">{message}</p>
+      </div>
+      {onRetry && (
+        <button className="error-retry" onClick={onRetry}>Try again</button>
+      )}
+    </div>
+  );
+}
+
+// ── feature components ─────────────────────────────────────────────────────
 
 function RecCard({ rec, tz }) {
   return (
@@ -62,20 +139,22 @@ function RecCard({ rec, tz }) {
         <span className="rec-task">{rec.task_label}</span>
         <span className="rec-score">score {Math.round(rec.score)}/100</span>
       </div>
-
       <div className="rec-windows">
         <div className="rec-window-block">
           <span className="rec-window-label">Best window</span>
-          <span className="rec-window-time">{fmtTime(rec.primary_start, tz)} – {fmtTime(rec.primary_end, tz)}</span>
+          <span className="rec-window-time">
+            {fmtTime(rec.primary_start, tz)} – {fmtTime(rec.primary_end, tz)}
+          </span>
         </div>
         {rec.backup_start && (
           <div className="rec-window-block">
             <span className="rec-window-label">Backup</span>
-            <span className="rec-backup-time">{fmtTime(rec.backup_start, tz)} – {fmtTime(rec.backup_end, tz)}</span>
+            <span className="rec-backup-time">
+              {fmtTime(rec.backup_start, tz)} – {fmtTime(rec.backup_end, tz)}
+            </span>
           </div>
         )}
       </div>
-
       <div className="rec-savings">
         {rec.carbon_saved_kg > 0.02 && (
           <span className="saving-pill co2">↓ {rec.carbon_saved_kg.toFixed(1)} kg CO₂</span>
@@ -84,8 +163,94 @@ function RecCard({ rec, tz }) {
           <span className="saving-pill cost">↓ £{rec.cost_saved_gbp.toFixed(2)}</span>
         )}
       </div>
-
       <p className="rec-reason">{rec.reason}</p>
+    </div>
+  );
+}
+
+function Timeline({ slots, recommendations, tz = "Europe/London", theme = "dark" }) {
+  if (!slots?.length) return null;
+
+  const c = CHART_COLORS[theme] || CHART_COLORS.dark;
+
+  const chartData = slots.map(s => ({
+    start: s.start,
+    Carbon: Math.round(s.carbon_score ?? 0),
+    Price:  s.price_score != null ? Math.round(s.price_score) : null,
+  }));
+
+  const windowLines = (recommendations ?? [])
+    .filter(r => r.primary_start)
+    .map(r => ({ x: r.primary_start, label: r.task_label.split("(")[0].trim() }));
+
+  const tickInterval = Math.max(1, Math.floor(slots.length / 10));
+
+  return (
+    <div className="chart-wrap">
+      <div className="chart-header">
+        <h3 className="chart-title">
+          48-h grid · {tz.split("/")[1].replace("_", " ")}
+        </h3>
+        <span className="chart-hint">drag handles to zoom · pan to explore</span>
+      </div>
+      <ResponsiveContainer width="100%" height={288}>
+        <AreaChart data={chartData} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor={c.green} stopOpacity={0.35} />
+              <stop offset="95%" stopColor={c.green} stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="gp" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor={c.blue} stopOpacity={0.35} />
+              <stop offset="95%" stopColor={c.blue} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
+          <XAxis
+            dataKey="start"
+            tickFormatter={v => fmtAxis(v, tz)}
+            interval={tickInterval}
+            tick={{ fontSize: 11, fill: c.tick }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis
+            domain={[0, 100]}
+            tick={{ fontSize: 11, fill: c.tick }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <Tooltip content={<CustomTooltip tz={tz} />} />
+          <Legend wrapperStyle={{ fontSize: 12, color: c.tick, paddingTop: 6 }} />
+          <Area
+            type="monotone" dataKey="Carbon"
+            stroke={c.green} fill="url(#gc)"
+            strokeWidth={2} dot={false} connectNulls
+            activeDot={{ r: 4, strokeWidth: 0, fill: c.green }}
+          />
+          <Area
+            type="monotone" dataKey="Price"
+            stroke={c.blue} fill="url(#gp)"
+            strokeWidth={2} dot={false} connectNulls
+            activeDot={{ r: 4, strokeWidth: 0, fill: c.blue }}
+          />
+          {windowLines.map((w, i) => (
+            <ReferenceLine
+              key={i} x={w.x}
+              stroke={c.yellow} strokeDasharray="4 3" strokeWidth={2}
+              label={{ value: "▶", position: "insideTopRight", fill: c.yellow, fontSize: 10 }}
+            />
+          ))}
+          <Brush
+            dataKey="start"
+            height={26}
+            stroke={c.brush}
+            fill={c.brushFill}
+            travellerWidth={8}
+            tickFormatter={v => fmtAxis(v, tz)}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -111,7 +276,7 @@ function WeeklyView({ result, tz }) {
                   <span className="weekly-task-name">{t.task_label}</span>
                   {t.best_start
                     ? <span className="weekly-task-time">
-                        {fmtTime(t.best_start, tz)} · score {Math.round(t.score)}
+                        {fmtTime(t.best_start, tz)} · {Math.round(t.score)}
                       </span>
                     : <span className="weekly-no-window">no window</span>
                   }
@@ -133,10 +298,8 @@ function WeeklyView({ result, tz }) {
 
 function CompareView({ result, tz }) {
   if (!result) return null;
-  const taskTypes = result.tasks;
   const modeLabels = { balanced: "⚖️ Balanced", green: "💚 Go Green", money: "💰 Save Money" };
 
-  // Group by task — show 3 mode cards per task
   const allTasks = result.modes.balanced.map((_, i) => ({
     balanced: result.modes.balanced[i],
     green:    result.modes.green[i],
@@ -166,66 +329,16 @@ function CompareView({ result, tz }) {
   );
 }
 
-function Timeline({ slots, recommendations, tz = "Europe/London" }) {
-  if (!slots?.length) return null;
-
-  const chartData = slots.map(s => ({
-    start: s.start,
-    "Carbon score": Math.round(s.carbon_score ?? 0),
-    "Price score":  s.price_score != null ? Math.round(s.price_score) : null,
-  }));
-
-  const windowLines = (recommendations ?? []).flatMap(r => [
-    r.primary_start ? { x: r.primary_start, label: r.task_label.split("(")[0].trim() } : null,
-  ]).filter(Boolean);
-
-  const tickInterval = Math.max(1, Math.floor(slots.length / 12));
-
-  return (
-    <div className="chart-wrap">
-      <h3>48-hour conditions — {tz.split("/")[1].replace("_", " ")} (higher = better slot)</h3>
-      <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-          <defs>
-            <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#4ade80" stopOpacity={0.4} />
-              <stop offset="95%" stopColor="#4ade80" stopOpacity={0.0} />
-            </linearGradient>
-            <linearGradient id="gp" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#7dd3fc" stopOpacity={0.4} />
-              <stop offset="95%" stopColor="#7dd3fc" stopOpacity={0.0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
-          <XAxis
-            dataKey="start"
-            tickFormatter={v => fmtAxis(v, tz)}
-            interval={tickInterval}
-            tick={{ fontSize: 11, fill: "#6b7280" }}
-            tickLine={false}
-          />
-          <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} axisLine={false} />
-          <Tooltip content={<CustomTooltip tz={tz} />} />
-          <Legend wrapperStyle={{ fontSize: 12, color: "#94a3b8" }} />
-          <Area type="monotone" dataKey="Carbon score" stroke="#4ade80" fill="url(#gc)" strokeWidth={2} dot={false} connectNulls />
-          <Area type="monotone" dataKey="Price score"  stroke="#7dd3fc" fill="url(#gp)" strokeWidth={2} dot={false} connectNulls />
-          {windowLines.map((w, i) => (
-            <ReferenceLine
-              key={i} x={w.x}
-              stroke="#fbbf24" strokeDasharray="4 3" strokeWidth={2}
-              label={{ value: "▶", position: "top", fill: "#fbbf24", fontSize: 10 }}
-            />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
 function HistoryView({ plans, onFeedback, feedbackSent }) {
-  if (!plans?.length) return (
-    <div className="card" style={{ color: "#6b7280", fontSize: ".875rem" }}>No plans saved yet — get a recommendation first.</div>
-  );
+  if (!plans?.length) {
+    return (
+      <div className="empty-state">
+        <p className="empty-icon">📋</p>
+        <p className="empty-title">No plans yet</p>
+        <p className="empty-body">Get a recommendation to start tracking your history.</p>
+      </div>
+    );
+  }
 
   const modeLabel = { balanced: "⚖️ Balanced", green: "💚 Green", money: "💰 Money" };
   const modeClass = { balanced: "", green: "green", money: "money" };
@@ -238,7 +351,9 @@ function HistoryView({ plans, onFeedback, feedbackSent }) {
           <div key={plan.id} className="history-item">
             <div className="history-item-header">
               <span className="history-item-meta">
-                {plan.location} · {new Date(plan.created_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                {plan.location} · {new Date(plan.created_at).toLocaleString("en-GB", {
+                  day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+                })}
               </span>
               <span className={`history-item-mode ${modeClass[plan.mode] || ""}`}>
                 {modeLabel[plan.mode] || plan.mode}
@@ -251,21 +366,27 @@ function HistoryView({ plans, onFeedback, feedbackSent }) {
                 return (
                   <div key={rec.task_type} className="history-rec-row">
                     <span className="history-rec-label">{rec.task_label}</span>
-                    <span className="history-rec-time">{fmtTime(rec.primary_start, "Europe/London")}</span>
+                    <span className="history-rec-time">
+                      {fmtTime(rec.primary_start, "Europe/London")}
+                    </span>
                     {rec.carbon_saved_kg > 0.02 && (
-                      <span className="history-rec-saving">↓ {rec.carbon_saved_kg.toFixed(1)} kg</span>
+                      <span className="history-rec-saving">
+                        ↓ {rec.carbon_saved_kg.toFixed(1)} kg
+                      </span>
                     )}
                     <div className="feedback-btns">
                       <button
                         className={`feedback-btn${sent ? " sent" : ""}`}
                         disabled={sent}
                         title="I followed this"
+                        aria-label="Mark as followed"
                         onClick={() => !sent && onFeedback(plan.id, rec.task_type, true)}
                       >✓</button>
                       <button
                         className={`feedback-btn${sent ? " sent" : ""}`}
                         disabled={sent}
                         title="I didn't follow this"
+                        aria-label="Mark as not followed"
                         onClick={() => !sent && onFeedback(plan.id, rec.task_type, false)}
                       >✗</button>
                     </div>
@@ -283,20 +404,29 @@ function HistoryView({ plans, onFeedback, feedbackSent }) {
 // ── main App ───────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [city, setCity]       = useState("london");
-  const [mode, setMode]       = useState("balanced");
-  const [tasks, setTasks]     = useState([
+  const [theme, toggleTheme] = useTheme();
+
+  const [city, setCity]   = useState("london");
+  const [mode, setMode]   = useState("balanced");
+  const [tasks, setTasks] = useState([
     { ...TASK_TYPES[0], duration_mins: TASK_TYPES[0].defaultDuration },
   ]);
-  const [result, setResult]   = useState(null);
+
+  const [result,  setResult]  = useState(null);
   const [compare, setCompare] = useState(null);
-  const [weekly, setWeekly]       = useState(null);
-  const [history, setHistory]     = useState(null);
+  const [weekly,  setWeekly]  = useState(null);
+  const [history, setHistory] = useState(null);
   const [feedbackSent, setFeedbackSent] = useState(new Set());
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState(null);
+
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState(null);
+  const [lastAction, setLastAction] = useState(null);
 
   const cityTz = CITIES.find(c => c.id === city)?.tz ?? "Europe/London";
+
+  function clearResults() {
+    setResult(null); setCompare(null); setWeekly(null); setHistory(null); setError(null);
+  }
 
   function addTask(type) {
     if (tasks.find(t => t.id === type.id)) return;
@@ -319,15 +449,64 @@ export default function App() {
     deadline: t.deadline ?? null,
   }));
 
-  async function getHistory() {
-    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null); setHistory(null);
+  async function runAction(actionKey, fetchFn, onData) {
+    setLoading(true);
+    clearResults();
+    setLastAction(actionKey);
     try {
-      const res = await fetch("/api/plans");
-      if (!res.ok) throw new Error(`API error ${res.status}`);
-      const data = await res.json();
-      setHistory(data.plans);
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
+      const res = await fetchFn();
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        let msg = `${res.status}`;
+        try { const j = JSON.parse(body); if (j.detail) msg += `: ${j.detail}`; } catch (_) {}
+        throw new Error(msg);
+      }
+      onData(await res.json());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function getPlan() {
+    return runAction("plan",
+      () => fetch("/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city, mode, tasks: taskPayload() }),
+      }),
+      data => setResult(data),
+    );
+  }
+
+  function getCompare() {
+    return runAction("compare",
+      () => fetch("/api/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city, tasks: taskPayload() }),
+      }),
+      data => setCompare(data),
+    );
+  }
+
+  function getWeekly() {
+    return runAction("weekly",
+      () => fetch("/api/weekly", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city, tasks: taskPayload() }),
+      }),
+      data => setWeekly(data),
+    );
+  }
+
+  function getHistory() {
+    return runAction("history",
+      () => fetch("/api/plans"),
+      data => setHistory(data.plans),
+    );
   }
 
   async function sendFeedback(planId, taskType, followed) {
@@ -342,46 +521,11 @@ export default function App() {
     } catch (_) {}
   }
 
-  async function getPlan() {
-    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null); setHistory(null);
-    try {
-      const res = await fetch("/api/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ city, mode, tasks: taskPayload() }),
-      });
-      if (!res.ok) throw new Error(`API error ${res.status}`);
-      setResult(await res.json());
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  }
-
-  async function getCompare() {
-    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null); setHistory(null);
-    try {
-      const res = await fetch("/api/compare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ city, tasks: taskPayload() }),
-      });
-      if (!res.ok) throw new Error(`API error ${res.status}`);
-      setCompare(await res.json());
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  }
-
-  async function getWeekly() {
-    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null); setHistory(null);
-    try {
-      const res = await fetch("/api/weekly", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ city, tasks: taskPayload() }),
-      });
-      if (!res.ok) throw new Error(`API error ${res.status}`);
-      setWeekly(await res.json());
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
+  function retry() {
+    if (lastAction === "plan")    getPlan();
+    else if (lastAction === "compare") getCompare();
+    else if (lastAction === "weekly")  getWeekly();
+    else if (lastAction === "history") getHistory();
   }
 
   const addedIds = new Set(tasks.map(t => t.id));
@@ -389,20 +533,23 @@ export default function App() {
   return (
     <div className="container">
       {/* Hero */}
-      <div className="hero">
-        <h1>Climate &amp; Carbon-Aware <span>Planner</span></h1>
-        <p className="muted">Find the best time window for your tasks — low-carbon, low-cost, weather-ready</p>
-      </div>
+      <header className="hero">
+        <div className="hero-text">
+          <h1>Climate &amp; Carbon-Aware <span>Planner</span></h1>
+          <p className="muted">Find the best time for your tasks — low-carbon, low-cost, weather-ready</p>
+        </div>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      </header>
 
       {/* City */}
       <div className="card">
         <div className="card-title">City</div>
-        <div className="mode-group">
+        <div className="btn-group">
           {CITIES.map(c => (
             <button
               key={c.id}
-              className={`mode-btn${city === c.id ? " active" : ""}`}
-              onClick={() => { setCity(c.id); setResult(null); setCompare(null); setWeekly(null); setHistory(null); }}
+              className={`seg-btn${city === c.id ? " active" : ""}`}
+              onClick={() => { setCity(c.id); clearResults(); }}
             >
               {c.label}
             </button>
@@ -411,8 +558,8 @@ export default function App() {
         {city !== "london" && (
           <p className="city-note">
             {city === "paris"
-              ? "Carbon: RTE éco2mix cyclical proxy · Price data not available"
-              : "Carbon: Elia open data ods192 (consumption-based CO₂) · Price data not available"}
+              ? "Carbon: RTE éco2mix cyclical proxy · Price data unavailable"
+              : "Carbon: Elia ods192 (consumption-based CO₂) · Price data unavailable"}
           </p>
         )}
       </div>
@@ -420,11 +567,11 @@ export default function App() {
       {/* Mode */}
       <div className="card">
         <div className="card-title">Optimise for</div>
-        <div className="mode-group">
+        <div className="btn-group">
           {MODES.map(m => (
             <button
               key={m.id}
-              className={`mode-btn${mode === m.id ? " active" : ""}`}
+              className={`seg-btn${mode === m.id ? " active" : ""}`}
               onClick={() => setMode(m.id)}
             >
               {m.label}
@@ -435,86 +582,153 @@ export default function App() {
 
       {/* Task builder */}
       <div className="card">
-        <div className="card-title">Add tasks</div>
-        <div className="task-chips">
+        <div className="card-title">Tasks</div>
+
+        <div className="chip-row">
           {TASK_TYPES.map(t => (
             <button
               key={t.id}
               className={`chip${addedIds.has(t.id) ? " active" : ""}`}
               onClick={() => addTask(t)}
               disabled={addedIds.has(t.id)}
+              aria-pressed={addedIds.has(t.id)}
             >
               {t.label}
             </button>
           ))}
         </div>
 
-        <div className="task-list">
-          {tasks.map(t => (
-            <div key={t.id} className="task-row">
-              <span className="task-name">{t.label}</span>
-              <span>
-                <label>Duration (min) </label>
-                <input
-                  type="number" min={30} step={30} value={t.duration_mins}
-                  onChange={e => updateTask(t.id, "duration_mins", e.target.value)}
-                />
-              </span>
-              <span>
-                <label>Between </label>
-                <input type="time" value={t.windowStart} onChange={e => updateTask(t.id, "windowStart", e.target.value)} />
-                <label> – </label>
-                <input type="time" value={t.windowEnd}   onChange={e => updateTask(t.id, "windowEnd",   e.target.value)} />
-              </span>
-              <button className="remove-btn" onClick={() => removeTask(t.id)} title="Remove">✕</button>
-            </div>
-          ))}
-        </div>
+        {tasks.length > 0 && (
+          <div className="task-list">
+            {tasks.map(t => (
+              <div key={t.id} className="task-row">
+                <span className="task-name">{t.label}</span>
+                <div className="task-controls">
+                  <div className="task-field">
+                    <label htmlFor={`dur-${t.id}`}>Duration</label>
+                    <div className="input-with-unit">
+                      <input
+                        id={`dur-${t.id}`}
+                        type="number" min={30} step={30}
+                        value={t.duration_mins}
+                        onChange={e => updateTask(t.id, "duration_mins", e.target.value)}
+                      />
+                      <span className="unit">min</span>
+                    </div>
+                  </div>
+                  <div className="task-field">
+                    <label>Window</label>
+                    <div className="time-range">
+                      <input
+                        type="time" value={t.windowStart}
+                        onChange={e => updateTask(t.id, "windowStart", e.target.value)}
+                      />
+                      <span className="time-sep">–</span>
+                      <input
+                        type="time" value={t.windowEnd}
+                        onChange={e => updateTask(t.id, "windowEnd", e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <button
+                  className="remove-btn"
+                  onClick={() => removeTask(t.id)}
+                  aria-label={`Remove ${t.label}`}
+                >✕</button>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="action-row">
-          <button className="plan-btn" onClick={getPlan} disabled={loading || tasks.length === 0}>
-            {loading ? "Fetching conditions…" : "Get Recommendations →"}
+          <button
+            className="btn-primary"
+            onClick={getPlan}
+            disabled={loading || tasks.length === 0}
+          >
+            {loading && lastAction === "plan"
+              ? <><span className="spinner" aria-hidden="true" /> Fetching…</>
+              : "Get Recommendations →"}
           </button>
-          <button className="compare-btn" onClick={getCompare} disabled={loading || tasks.length === 0}>
-            Compare all modes
+          <button
+            className="btn-outline"
+            onClick={getCompare}
+            disabled={loading || tasks.length === 0}
+          >
+            {loading && lastAction === "compare"
+              ? <><span className="spinner" aria-hidden="true" /> …</>
+              : "Compare modes"}
           </button>
-          <button className="weekly-btn" onClick={getWeekly} disabled={loading || tasks.length === 0}>
-            Weekly brief
+          <button
+            className="btn-outline blue"
+            onClick={getWeekly}
+            disabled={loading || tasks.length === 0}
+          >
+            {loading && lastAction === "weekly"
+              ? <><span className="spinner" aria-hidden="true" /> …</>
+              : "7-day outlook"}
           </button>
-          <button className="history-btn" onClick={getHistory} disabled={loading}>
-            History
+          <button
+            className="btn-outline purple"
+            onClick={getHistory}
+            disabled={loading}
+          >
+            {loading && lastAction === "history"
+              ? <><span className="spinner" aria-hidden="true" /> …</>
+              : "History"}
           </button>
         </div>
-
-        {error && <p className="error-msg">Error: {error}</p>}
       </div>
 
-      {/* Single-mode results */}
-      {result && (
+      {/* Loading */}
+      {loading && <LoadingResults action={lastAction} />}
+
+      {/* Error */}
+      {!loading && error && <ErrorCard message={error} onRetry={retry} />}
+
+      {/* Recommendations */}
+      {!loading && result && (
         <>
           <p className="results-header">
-            Recommendations · {result.location} · mode: <b>{result.mode}</b>
+            Recommendations · {result.location} · <b>{result.mode}</b>
             {result.carbon_label && <span className="carbon-label"> · {result.carbon_label}</span>}
           </p>
-          {result.recommendations.map((r, i) => <RecCard key={i} rec={r} tz={cityTz} />)}
-          <Timeline slots={result.slots} recommendations={result.recommendations} tz={cityTz} />
+          {result.recommendations.map((r, i) => (
+            <RecCard key={i} rec={r} tz={cityTz} />
+          ))}
+          <Timeline
+            slots={result.slots}
+            recommendations={result.recommendations}
+            tz={cityTz}
+            theme={theme}
+          />
         </>
       )}
 
-      {/* Comparison results */}
-      {compare && (
+      {/* Comparison */}
+      {!loading && compare && (
         <>
           <CompareView result={compare} tz={cityTz} />
-          <Timeline slots={compare.slots} recommendations={compare.modes.balanced} tz={cityTz} />
+          <Timeline
+            slots={compare.slots}
+            recommendations={compare.modes.balanced}
+            tz={cityTz}
+            theme={theme}
+          />
         </>
       )}
 
-      {/* Weekly brief */}
-      {weekly && <WeeklyView result={weekly} tz={cityTz} />}
+      {/* Weekly */}
+      {!loading && weekly && <WeeklyView result={weekly} tz={cityTz} />}
 
       {/* History */}
-      {history !== null && (
-        <HistoryView plans={history} onFeedback={sendFeedback} feedbackSent={feedbackSent} />
+      {!loading && history !== null && (
+        <HistoryView
+          plans={history}
+          onFeedback={sendFeedback}
+          feedbackSent={feedbackSent}
+        />
       )}
     </div>
   );
