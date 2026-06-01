@@ -1,59 +1,87 @@
-# Climate & Carbon-Aware Planner
+# 🌍 Climate & Carbon-Aware Planner
 
-A decision-support tool that recommends the best time windows to run flexible household and office tasks — based on grid carbon intensity, electricity price, weather, and comfort. Deployed free on Render (web service + managed Postgres), SQLite for local dev.
+A household scheduling tool that recommends the best time windows to run flexible appliances — low-carbon, low-cost, and weather-suitable — and shows you the exact **£ saved** and **kg CO₂ avoided** vs running at the evening peak.
 
-## Stack
+**[Live demo →](https://carbon-planner-web.onrender.com)** · [Case study →](https://www.notion.so/3722ead75652815ca031f2deccb087a0)
 
-- **Frontend:** React 18 + Vite 5 (JavaScript)
-- **Backend:** Python 3.10+ · FastAPI · SQLAlchemy
-- **Database:** SQLite locally (no install needed) · PostgreSQL on Render
-- **Data sources:** UK Carbon Intensity API · Octopus Agile (price) · Open-Meteo (weather) — all free
-- **Deploy:** Render free tier, provisioned via `render.yaml` Blueprint
+> The UK grid swings from ~50 to ~380 gCO₂/kWh within a single day. This tool turns that signal into a named time window — no smart meter, no solar panels, no hardware required.
 
-## Project structure
+---
 
-```text
-.
-├── backend/
-│   ├── requirements.txt
-│   ├── .python-version        # 3.10 (local dev)
-│   └── app/
-│       ├── main.py            # FastAPI entry point
-│       ├── config.py          # settings from env
-│       ├── db.py              # SQLAlchemy, SQLite/Postgres from DATABASE_URL
-│       ├── models.py          # ORM models
-│       ├── routers/           # API routes
-│       ├── providers/         # carbon / price / weather data clients
-│       └── core/              # scoring, scheduling, savings engine
-├── frontend/
-│   ├── package.json
-│   ├── vite.config.js         # dev proxy /api → localhost:3001
-│   ├── index.html
-│   └── src/
-│       ├── main.jsx
-│       ├── App.jsx
-│       └── styles.css
-├── Dockerfile                 # multi-stage: Node build → Python deps → runtime
-├── render.yaml                # Blueprint: free web service + Postgres
-├── .env.example
-├── .gitignore
-├── .dockerignore
-└── docs/
-    ├── implementation-plan.md
-    └── competitive-research.md
+## What it does
+
+Pick a city and tasks (laundry, EV charging, dishwasher, ventilation), choose your priority (Go Green / Save Money / Balanced), and get:
+
+- **Primary + backup windows** with exact start/end times
+- **Carbon saving** vs the evening-peak baseline (kg CO₂)
+- **Cost saving** vs the evening-peak baseline (£, Octopus Agile pricing)
+- **One-line reason** explaining why this window was chosen
+- **7-day outlook** with an AI-generated weekly brief (Groq)
+- **Scenario comparison** — all three optimisation modes side by side
+- **Plan history** with ✓/✗ follow-through feedback
+
+---
+
+## Architecture
+
 ```
+React + Vite (frontend)
+    ↓  /api/*  JSON
+FastAPI (backend)
+    providers/   →  carbon_uk · carbon_fr · carbon_be · price_octopus · weather_openmeteo
+    core/        →  scoring · scheduler · savings
+    routers/     →  plan · compare · forecast · weekly · history
+    db.py        →  SQLite locally / Neon Postgres on Render
+```
+
+### 4-axis scoring engine
+
+Every 30-minute slot in the 48-hour grid gets a composite 0–100 score:
+
+| Axis | Go Green | Save Money | Balanced |
+|---|---|---|---|
+| Carbon intensity | 55% | 10% | 33% |
+| Electricity price | 10% | 55% | 33% |
+| Weather suitability | 35% | 35% | 34% |
+| Comfort | hard gate | hard gate | hard gate |
+
+Comfort is a hard gate — slots that violate a constraint (rain during outdoor drying, pollen spike during ventilation) are excluded, not penalised.
+
+### Slide-window scheduler
+
+For each task the scheduler scans every valid start in the grid, applies comfort gates, and ranks candidates by mean fit score over the task duration. Returns a primary window and the best non-overlapping backup.
+
+### 7-day outlook
+
+Days 1–2 use genuine API forecast data. Days 3–7 use a cyclical time-of-day proxy (each forward slot matched to the same time-of-day from recent actuals, 24h → 48h → 72h lag). Clearly labelled in the UI.
+
+---
+
+## Data sources
+
+| Source | What | Coverage | Key needed |
+|---|---|---|---|
+| [UK Carbon Intensity API](https://carbonintensity.org.uk) | Grid carbon intensity + 48h forecast | UK (17 regions) | No |
+| [RTE éco2mix via ODRE](https://odre.opendatasoft.com) | Grid carbon intensity actuals | France | No |
+| [Elia open data ods192](https://opendata.elia.be) | Consumption-based CO₂ intensity | Belgium | No |
+| [Octopus Agile API](https://octopus.energy/agile/) | 30-min electricity prices | UK | No |
+| [Open-Meteo](https://open-meteo.com) | Weather forecast (10 variables) | Global | No |
+| [Groq](https://console.groq.com) | AI weekly brief (llama-3.1-8b-instant) | — | Free tier |
+
+---
 
 ## Local development
 
-No database to install — SQLite is created automatically on first run.
+No database install needed — SQLite is created automatically.
 
-**Terminal 1 — backend** (Python 3.10 required; 3.14 has no pydantic-core wheels yet):
+**Terminal 1 — backend** (Python 3.10 required):
 
 ```bash
 cd backend
 python3.10 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env   # then add GROQ_API_KEY if you want AI briefs
 uvicorn app.main:app --reload --port 3001
 ```
 
@@ -65,23 +93,100 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The Vite dev server proxies all `/api` requests to the FastAPI backend on port 3001.
+Open [http://localhost:5173](http://localhost:5173). Vite proxies all `/api` requests to the FastAPI backend on port 3001.
 
-## Deploy to Render
+### Environment variables
 
-1. Push this repo to GitHub.
-2. In Render, go to **New → Blueprint** and connect the repository.
-3. Render reads `render.yaml` and provisions a free web service (Docker) and a free Postgres database. `DATABASE_URL` is wired automatically.
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | No (uses SQLite) | Neon/Postgres connection string for production |
+| `GROQ_API_KEY` | No | Enables AI weekly briefs; falls back to template text without it |
 
-**Free-tier notes:**
+Copy `.env.example` → `backend/.env` and fill in values.
 
-- The web service sleeps after inactivity; expect a ~30s cold start on the first request.
-- Render's free Postgres instance expires after 90 days and must be manually recreated.
+---
 
-## Endpoints
+## Running tests
+
+```bash
+cd backend
+.venv/bin/python -m pytest tests/ -v
+```
+
+29 unit tests covering the scoring engine, scheduler, and savings calculator. All pure functions — no mocking, no network.
+
+---
+
+## API reference
 
 | Method | Path | Description |
-| --- | --- | --- |
-| `GET` | `/api/hello` | Returns a greeting message |
-| `GET` | `/api/health` | Checks database connectivity, returns `{ status, db }` |
-| `GET` | `*` | Serves the React SPA (production only) |
+|---|---|---|
+| `GET` | `/api/health` | `{ status, db }` — confirms database connectivity |
+| `GET` | `/api/forecast` | 48-hour normalised slot grid (carbon + price + weather scores) |
+| `POST` | `/api/plan` | Best windows for a list of tasks; saves plan to DB |
+| `POST` | `/api/compare` | Same tasks across all three modes in one call |
+| `POST` | `/api/weekly` | 7-day outlook + AI brief |
+| `GET` | `/api/plans` | Recent plan history (last 20) |
+| `POST` | `/api/feedback` | Record whether user followed a recommendation |
+
+### POST /api/plan — example
+
+```json
+{
+  "city": "london",
+  "mode": "balanced",
+  "tasks": [
+    { "type": "ev_charge", "duration_mins": 240,
+      "window_start": "22:00", "window_end": "23:59", "deadline": "07:00" },
+    { "type": "laundry_airdry", "duration_mins": 120,
+      "window_start": "08:00", "window_end": "20:00" }
+  ]
+}
+```
+
+Task types: `laundry_airdry` · `laundry_dryer` · `dishwasher` · `ev_charge` · `ventilation`  
+Cities: `london` · `paris` · `antwerp`  
+Modes: `balanced` · `green` · `money`
+
+---
+
+## Deploying to Render
+
+1. Push to GitHub.
+2. Render → **New → Blueprint** → connect repo → Render reads `render.yaml`.
+3. In **Environment Variables**, add manually:
+   - `DATABASE_URL` — Neon connection string (`postgresql://...`)
+   - `GROQ_API_KEY` — from [console.groq.com](https://console.groq.com) (free)
+
+> **Free-tier note:** Render web services sleep after inactivity — expect a ~30s cold start. Neon Postgres (recommended over Render's free DB, which expires after 90 days) stays active indefinitely on the free tier.
+
+---
+
+## Project structure
+
+```
+.
+├── backend/
+│   ├── requirements.txt
+│   ├── app/
+│   │   ├── main.py              FastAPI entry point, lifespan, CORS
+│   │   ├── config.py            Settings (pydantic-settings, reads .env)
+│   │   ├── db.py                SQLAlchemy engine — SQLite local / Postgres prod
+│   │   ├── models.py            Plan · Task · Recommendation · Feedback
+│   │   ├── schemas.py           Pydantic request/response models
+│   │   ├── routers/             plan · compare · forecast · weekly · history
+│   │   ├── providers/           carbon_uk · carbon_fr · carbon_be · price_octopus · weather_openmeteo · brief_groq
+│   │   └── core/                scoring · scheduler · savings · tasks · city_registry
+│   └── tests/
+│       └── test_core.py         29 unit tests
+├── frontend/
+│   └── src/
+│       ├── App.jsx
+│       └── styles.css
+├── Dockerfile                   Multi-stage: Node build → Python deps → runtime
+├── render.yaml                  Render Blueprint (web service only — DB is Neon)
+├── .env.example
+└── docs/
+    ├── implementation-plan.md
+    └── competitive-research.md
+```
