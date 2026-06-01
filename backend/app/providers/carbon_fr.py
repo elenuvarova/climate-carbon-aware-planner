@@ -93,3 +93,49 @@ async def fetch_carbon_fr() -> pd.Series:
     except Exception as exc:
         log.error("France carbon (ODRE RT) failed: %s", exc)
         raise
+
+
+async def fetch_carbon_fr_7d() -> pd.Series:
+    """7-day forward series (336 slots) via cyclical proxy — same logic, extended horizon."""
+    key = f"carbon_fr_7d:{_bucket()}"
+    if key in _cache:
+        return _cache[key]
+
+    try:
+        page0 = await _fetch_page(0)
+        page1 = await _fetch_page(PAGE_SIZE)
+        raw = page0 + page1
+
+        if not raw:
+            raise ValueError("Empty eco2mix RT response")
+
+        index = pd.to_datetime([r["date_heure"] for r in raw], utc=True)
+        values = [float(r["taux_co2"]) for r in raw]
+        actuals = pd.Series(data=values, index=index).sort_index()
+        actuals = actuals.resample("30min").mean().dropna()
+        mean_ci = float(actuals.mean())
+
+        now_utc = pd.Timestamp.now(tz="UTC").floor("30min")
+        forward_index = pd.date_range(start=now_utc, periods=336, freq="30min")  # 7 days
+
+        forward_values: list[float] = []
+        for ts in forward_index:
+            val = mean_ci
+            for lag_h in (24, 48, 72):
+                ref = ts - pd.Timedelta(hours=lag_h)
+                diffs = abs(actuals.index - ref)
+                if len(diffs) == 0:
+                    break
+                min_i = int(diffs.argmin())
+                if diffs[min_i] < pd.Timedelta(minutes=30):
+                    val = float(actuals.iloc[min_i])
+                    break
+            forward_values.append(val)
+
+        series = pd.Series(data=forward_values, index=forward_index)
+        _cache[key] = series
+        return series
+
+    except Exception as exc:
+        log.error("France 7d carbon (ODRE RT) failed: %s", exc)
+        raise

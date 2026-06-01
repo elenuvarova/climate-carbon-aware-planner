@@ -90,6 +90,47 @@ function RecCard({ rec, tz }) {
   );
 }
 
+function WeeklyView({ result, tz }) {
+  if (!result) return null;
+  return (
+    <div>
+      <p className="results-header">
+        7-Day Outlook · {result.location}
+        {result.carbon_label && <span className="carbon-label"> · {result.carbon_label}</span>}
+      </p>
+      <div className="weekly-grid">
+        {result.days.map(day => (
+          <div key={day.date} className="weekly-day">
+            <div className="weekly-day-header">
+              <span className="weekly-day-label">{day.day_label}</span>
+              <span className="rec-score">{Math.round(day.avg_carbon_score)}/100 avg</span>
+            </div>
+            <div className="weekly-tasks">
+              {day.tasks.map(t => (
+                <div key={t.task_type} className="weekly-task-rec">
+                  <span className="weekly-task-name">{t.task_label}</span>
+                  {t.best_start
+                    ? <span className="weekly-task-time">
+                        {fmtTime(t.best_start, tz)} · score {Math.round(t.score)}
+                      </span>
+                    : <span className="weekly-no-window">no window</span>
+                  }
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {result.brief && (
+        <div className="weekly-brief">
+          <div className="card-title">Weekly Brief</div>
+          <p className="weekly-brief-text">{result.brief}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompareView({ result, tz }) {
   if (!result) return null;
   const taskTypes = result.tasks;
@@ -191,6 +232,7 @@ export default function App() {
   ]);
   const [result, setResult]   = useState(null);
   const [compare, setCompare] = useState(null);
+  const [weekly, setWeekly]   = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
 
@@ -218,7 +260,7 @@ export default function App() {
   }));
 
   async function getPlan() {
-    setLoading(true); setError(null); setResult(null); setCompare(null);
+    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null);
     try {
       const res = await fetch("/api/plan", {
         method: "POST",
@@ -232,7 +274,7 @@ export default function App() {
   }
 
   async function getCompare() {
-    setLoading(true); setError(null); setResult(null); setCompare(null);
+    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null);
     try {
       const res = await fetch("/api/compare", {
         method: "POST",
@@ -241,6 +283,20 @@ export default function App() {
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       setCompare(await res.json());
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  async function getWeekly() {
+    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null);
+    try {
+      const res = await fetch("/api/weekly", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city, tasks: taskPayload() }),
+      });
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      setWeekly(await res.json());
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }
@@ -263,7 +319,7 @@ export default function App() {
             <button
               key={c.id}
               className={`mode-btn${city === c.id ? " active" : ""}`}
-              onClick={() => { setCity(c.id); setResult(null); setCompare(null); }}
+              onClick={() => { setCity(c.id); setResult(null); setCompare(null); setWeekly(null); }}
             >
               {c.label}
             </button>
@@ -339,6 +395,9 @@ export default function App() {
           <button className="compare-btn" onClick={getCompare} disabled={loading || tasks.length === 0}>
             Compare all modes
           </button>
+          <button className="weekly-btn" onClick={getWeekly} disabled={loading || tasks.length === 0}>
+            Weekly brief
+          </button>
         </div>
 
         {error && <p className="error-msg">Error: {error}</p>}
@@ -363,6 +422,9 @@ export default function App() {
           <Timeline slots={compare.slots} recommendations={compare.modes.balanced} tz={cityTz} />
         </>
       )}
+
+      {/* Weekly brief */}
+      {weekly && <WeeklyView result={weekly} tz={cityTz} />}
     </div>
   );
 }

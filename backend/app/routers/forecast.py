@@ -6,9 +6,9 @@ from fastapi import APIRouter
 from app.core.city_registry import get_city
 from app.core.scoring import add_global_scores, add_weather_scores
 from app.core.slots import build_slot_grid
-from app.providers.carbon_be import fetch_carbon_be
-from app.providers.carbon_fr import fetch_carbon_fr
-from app.providers.carbon_uk import fetch_carbon
+from app.providers.carbon_be import fetch_carbon_be, fetch_carbon_be_7d
+from app.providers.carbon_fr import fetch_carbon_fr, fetch_carbon_fr_7d
+from app.providers.carbon_uk import fetch_carbon, fetch_carbon_7d
 from app.providers.price_octopus import fetch_price
 from app.providers.weather_openmeteo import fetch_weather
 from app.schemas import ForecastResponse, SlotOut
@@ -67,6 +67,31 @@ async def build_grid_with_scores(city_id: str = "london"):
 
     # Weather — Open-Meteo for city coordinates
     weather = await fetch_weather(city.lat, city.lon)
+
+    df = build_slot_grid(carbon, price, weather)
+    df = add_global_scores(df)
+    df = add_weather_scores(df)
+    return df, city
+
+
+async def build_grid_7d(city_id: str = "london"):
+    """7-day variant of build_grid_with_scores for the /api/weekly endpoint."""
+    city = get_city(city_id)
+
+    if city.carbon_provider == "uk":
+        carbon = await fetch_carbon_7d(city.region_id or 13)
+    elif city.carbon_provider == "fr":
+        carbon = await fetch_carbon_fr_7d()
+    else:
+        carbon = await fetch_carbon_be_7d(city.lat, city.lon)
+
+    if city.price_provider == "octopus":
+        price = await fetch_price()
+    else:
+        price = pd.Series(dtype=float)
+
+    # 7-day weather (Open-Meteo supports up to 16 days)
+    weather = await fetch_weather(city.lat, city.lon, days=7)
 
     df = build_slot_grid(carbon, price, weather)
     df = add_global_scores(df)

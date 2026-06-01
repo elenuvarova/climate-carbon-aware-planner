@@ -14,6 +14,7 @@ def _valid_starts(
     duration_mins: int,
     deadline: str | None,  # "HH:MM" — must finish by next occurrence
     tz: ZoneInfo = LONDON,
+    abs_deadline: datetime | None = None,  # pre-computed deadline (overrides deadline str)
 ) -> pd.DatetimeIndex:
     """Return slot starts where the task can begin and fits entirely within the window."""
     ws_h, ws_m = map(int, window_start.split(":"))
@@ -22,9 +23,8 @@ def _valid_starts(
     we_tod = we_h * 60 + we_m
     duration = timedelta(minutes=duration_mins)
 
-    # Build absolute deadline in UTC (first occurrence after now)
-    abs_deadline: datetime | None = None
-    if deadline:
+    # Build absolute deadline in UTC — use pre-computed if provided
+    if abs_deadline is None and deadline:
         dl_h, dl_m = map(int, deadline.split(":"))
         now_utc = datetime.now(timezone.utc)
         now_local = now_utc.astimezone(tz)
@@ -41,15 +41,18 @@ def _valid_starts(
         slot_tod = slot_local.hour * 60 + slot_local.minute
         end_tod = end_local.hour * 60 + end_local.minute
 
-        # Task must be entirely contained within the daily window (same calendar day)
-        if slot_local.date() != end_local.date():
-            continue
-        if slot_tod < ws_tod or end_tod > we_tod:
-            continue
-
-        # Deadline constraint
-        if abs_deadline and (slot_utc + duration) > abs_deadline:
-            continue
+        if abs_deadline:
+            if (slot_utc + duration) > abs_deadline:
+                continue
+            # With a deadline the task may legally span midnight (overnight charging etc.)
+            if slot_tod < ws_tod:
+                continue
+        else:
+            # No deadline: task must fit entirely within the daily window, same calendar day
+            if slot_local.date() != end_local.date():
+                continue
+            if slot_tod < ws_tod or end_tod > we_tod:
+                continue
 
         valid.append(slot_utc)
 
@@ -65,6 +68,7 @@ def find_windows(
     weather_profile: str | None = None,
     slot_grid: pd.DataFrame | None = None,
     tz: ZoneInfo = LONDON,
+    abs_deadline: datetime | None = None,  # pre-computed deadline for weekly view
 ) -> list[tuple[datetime, datetime, float]]:
     """
     Returns up to 2 non-overlapping (start, end, mean_score) tuples, best first.
@@ -72,7 +76,10 @@ def find_windows(
     """
     duration = timedelta(minutes=duration_mins)
     n_slots = max(1, duration_mins // 30)
-    valid = _valid_starts(fit_scores.index, window_start, window_end, duration_mins, deadline, tz)
+    valid = _valid_starts(
+        fit_scores.index, window_start, window_end, duration_mins, deadline, tz,
+        abs_deadline=abs_deadline,
+    )
 
     # Hard gate for weather tasks: drying slots where it's raining (score==0) are invalid
     invalid_slots: set = set()

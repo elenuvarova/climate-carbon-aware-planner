@@ -79,3 +79,33 @@ class CompareResponse(BaseModel):
     carbon_label: str
     slots: list[SlotOut]
     modes: dict[str, list[RecommendationOut]]  # "balanced" | "green" | "money" → recs
+
+
+# ── Weekly brief ──────────────────────────────────────────────────────────────
+
+class WeeklyTaskRec(BaseModel):
+    task_type: str
+    task_label: str
+    best_start: str | None = None   # ISO-8601 UTC; None = no valid window that day
+    best_end: str | None = None
+    score: float                    # 0-100 composite fit score
+
+
+class DayBrief(BaseModel):
+    date: str               # "YYYY-MM-DD" in city local timezone
+    day_label: str          # "Monday 2 Jun"
+    avg_carbon_score: float # 0-100 average across all slots that day
+    tasks: list[WeeklyTaskRec]
+
+
+class WeeklyRequest(BaseModel):
+    city: str = "london"
+    tasks: list[TaskIn]
+
+
+class WeeklyResponse(BaseModel):
+    location: str
+    city: str
+    carbon_label: str
+    days: list[DayBrief]
+    brief: str              # natural language text from Groq (or template fallback)

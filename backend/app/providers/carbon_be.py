@@ -92,3 +92,45 @@ async def fetch_carbon_be(lat: float = 51.2194, lon: float = 4.4025) -> pd.Serie
     except Exception as exc:
         log.error("Belgium carbon model (Open-Meteo) failed: %s", exc)
         raise
+
+
+async def fetch_carbon_be_7d(lat: float = 51.2194, lon: float = 4.4025) -> pd.Series:
+    """7-day carbon series (336 slots) from Open-Meteo 7-day weather forecast."""
+    key = f"carbon_be_7d:{_bucket()}"
+    if key in _cache:
+        return _cache[key]
+
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "shortwave_radiation,wind_speed_10m",
+        "forecast_days": 8,
+        "timezone": "UTC",
+    }
+
+    try:
+        r = await client().get("https://api.open-meteo.com/v1/forecast", params=params)
+        r.raise_for_status()
+        hourly = r.json()["hourly"]
+
+        times = pd.to_datetime(hourly["time"], utc=True)
+        solar = hourly.get("shortwave_radiation") or [0.0] * len(times)
+        wind = hourly.get("wind_speed_10m") or [0.0] * len(times)
+
+        values = [
+            _estimate_ci(solar[i], wind[i], int(ts.hour))
+            for i, ts in enumerate(times)
+        ]
+
+        hourly_series = pd.Series(data=values, index=times)
+        series = hourly_series.resample("30min").interpolate(method="linear")
+
+        now_utc = pd.Timestamp.now(tz="UTC").floor("30min")
+        series = series[series.index >= now_utc].iloc[:336]
+
+        _cache[key] = series
+        return series
+
+    except Exception as exc:
+        log.error("Belgium 7d carbon model (Open-Meteo) failed: %s", exc)
+        raise

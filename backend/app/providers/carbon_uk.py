@@ -58,3 +58,43 @@ async def fetch_carbon(region_id: int = 13) -> pd.Series:
 
     _cache[key] = series
     return series
+
+
+async def fetch_carbon_7d(region_id: int = 13) -> pd.Series:
+    """7-day carbon series (336 slots).
+
+    The UK Carbon Intensity API only forecasts ~48 h ahead, so this function
+    uses those 48 h of actual forecast data and extends days 3-7 via a
+    cyclical time-of-day proxy (same approach as the France provider).
+    """
+    key = f"carbon_7d:{region_id}:{_bucket()}"
+    if key in _cache:
+        return _cache[key]
+
+    actuals = await fetch_carbon(region_id)  # 48 h actual forecast
+    mean_ci = float(actuals.mean())
+
+    now_utc = pd.Timestamp.now(tz="UTC").floor("30min")
+    forward_index = pd.date_range(start=now_utc, periods=336, freq="30min")
+
+    forward_values: list[float] = []
+    for ts in forward_index:
+        if ts in actuals.index:
+            forward_values.append(float(actuals[ts]))
+            continue
+
+        val = mean_ci
+        for lag_h in (24, 48):
+            ref = ts - pd.Timedelta(hours=lag_h)
+            diffs = abs(actuals.index - ref)
+            if len(diffs) == 0:
+                break
+            min_i = int(diffs.argmin())
+            if diffs[min_i] < pd.Timedelta(minutes=30):
+                val = float(actuals.iloc[min_i])
+                break
+        forward_values.append(val)
+
+    series = pd.Series(data=forward_values, index=forward_index)
+    _cache[key] = series
+    return series
