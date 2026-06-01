@@ -6,6 +6,12 @@ import {
 
 // ── constants ──────────────────────────────────────────────────────────────
 
+const CITIES = [
+  { id: "london",  label: "🇬🇧 London",  tz: "Europe/London"   },
+  { id: "paris",   label: "🇫🇷 Paris",   tz: "Europe/Paris"    },
+  { id: "antwerp", label: "🇧🇪 Antwerp", tz: "Europe/Brussels" },
+];
+
 const MODES = [
   { id: "balanced", label: "⚖️ Balanced" },
   { id: "green",    label: "💚 Go Green" },
@@ -22,22 +28,22 @@ const TASK_TYPES = [
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-function fmtTime(isoStr) {
+function fmtTime(isoStr, tz = "Europe/London") {
   if (!isoStr) return "—";
   const d = new Date(isoStr);
-  return d.toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
+  return d.toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: tz });
 }
 
-function fmtAxis(isoStr) {
+function fmtAxis(isoStr, tz = "Europe/London") {
   const d = new Date(isoStr);
-  return d.toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
+  return d.toLocaleString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: tz });
 }
 
-const CustomTooltip = ({ active, payload, label }) => {
+const CustomTooltip = ({ active, payload, label, tz }) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{ background: "#161b22", border: "1px solid #30363d", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
-      <p style={{ color: "#94a3b8", marginBottom: 4 }}>{fmtAxis(label)}</p>
+      <p style={{ color: "#94a3b8", marginBottom: 4 }}>{fmtAxis(label, tz)}</p>
       {payload.map(p => (
         <p key={p.name} style={{ color: p.color }}>
           {p.name}: <b>{Math.round(p.value)}</b>
@@ -49,7 +55,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 // ── components ─────────────────────────────────────────────────────────────
 
-function RecCard({ rec, idx }) {
+function RecCard({ rec, tz }) {
   return (
     <div className="rec-card">
       <div className="rec-header">
@@ -60,12 +66,12 @@ function RecCard({ rec, idx }) {
       <div className="rec-windows">
         <div className="rec-window-block">
           <span className="rec-window-label">Best window</span>
-          <span className="rec-window-time">{fmtTime(rec.primary_start)} – {fmtTime(rec.primary_end)}</span>
+          <span className="rec-window-time">{fmtTime(rec.primary_start, tz)} – {fmtTime(rec.primary_end, tz)}</span>
         </div>
         {rec.backup_start && (
           <div className="rec-window-block">
             <span className="rec-window-label">Backup</span>
-            <span className="rec-backup-time">{fmtTime(rec.backup_start)} – {fmtTime(rec.backup_end)}</span>
+            <span className="rec-backup-time">{fmtTime(rec.backup_start, tz)} – {fmtTime(rec.backup_end, tz)}</span>
           </div>
         )}
       </div>
@@ -84,17 +90,50 @@ function RecCard({ rec, idx }) {
   );
 }
 
-function Timeline({ slots, recommendations }) {
+function CompareView({ result, tz }) {
+  if (!result) return null;
+  const taskTypes = result.tasks;
+  const modeLabels = { balanced: "⚖️ Balanced", green: "💚 Go Green", money: "💰 Save Money" };
+
+  // Group by task — show 3 mode cards per task
+  const allTasks = result.modes.balanced.map((_, i) => ({
+    balanced: result.modes.balanced[i],
+    green:    result.modes.green[i],
+    money:    result.modes.money[i],
+  }));
+
+  return (
+    <div>
+      <p className="results-header">
+        Scenario comparison · {result.location}
+        {result.carbon_label && <span className="carbon-label"> · {result.carbon_label}</span>}
+      </p>
+      {allTasks.map((group, i) => (
+        <div key={i} className="compare-group">
+          <div className="compare-task-name">{group.balanced.task_label}</div>
+          <div className="compare-cols">
+            {["balanced", "green", "money"].map(mode => (
+              <div key={mode} className="compare-col">
+                <div className="compare-mode-label">{modeLabels[mode]}</div>
+                <RecCard rec={group[mode]} tz={tz} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Timeline({ slots, recommendations, tz = "Europe/London" }) {
   if (!slots?.length) return null;
 
-  // Show every 4th slot label to avoid crowding
-  const chartData = slots.map((s, i) => ({
+  const chartData = slots.map(s => ({
     start: s.start,
     "Carbon score": Math.round(s.carbon_score ?? 0),
     "Price score":  s.price_score != null ? Math.round(s.price_score) : null,
   }));
 
-  // Build reference lines for recommended windows (primary only)
   const windowLines = (recommendations ?? []).flatMap(r => [
     r.primary_start ? { x: r.primary_start, label: r.task_label.split("(")[0].trim() } : null,
   ]).filter(Boolean);
@@ -103,7 +142,7 @@ function Timeline({ slots, recommendations }) {
 
   return (
     <div className="chart-wrap">
-      <h3>48-hour conditions — London (higher = better slot)</h3>
+      <h3>48-hour conditions — {tz.split("/")[1].replace("_", " ")} (higher = better slot)</h3>
       <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
           <defs>
@@ -119,39 +158,20 @@ function Timeline({ slots, recommendations }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
           <XAxis
             dataKey="start"
-            tickFormatter={fmtAxis}
+            tickFormatter={v => fmtAxis(v, tz)}
             interval={tickInterval}
             tick={{ fontSize: 11, fill: "#6b7280" }}
             tickLine={false}
           />
           <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} axisLine={false} />
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={<CustomTooltip tz={tz} />} />
           <Legend wrapperStyle={{ fontSize: 12, color: "#94a3b8" }} />
-          <Area
-            type="monotone"
-            dataKey="Carbon score"
-            stroke="#4ade80"
-            fill="url(#gc)"
-            strokeWidth={2}
-            dot={false}
-            connectNulls
-          />
-          <Area
-            type="monotone"
-            dataKey="Price score"
-            stroke="#7dd3fc"
-            fill="url(#gp)"
-            strokeWidth={2}
-            dot={false}
-            connectNulls
-          />
+          <Area type="monotone" dataKey="Carbon score" stroke="#4ade80" fill="url(#gc)" strokeWidth={2} dot={false} connectNulls />
+          <Area type="monotone" dataKey="Price score"  stroke="#7dd3fc" fill="url(#gp)" strokeWidth={2} dot={false} connectNulls />
           {windowLines.map((w, i) => (
             <ReferenceLine
-              key={i}
-              x={w.x}
-              stroke="#fbbf24"
-              strokeDasharray="4 3"
-              strokeWidth={2}
+              key={i} x={w.x}
+              stroke="#fbbf24" strokeDasharray="4 3" strokeWidth={2}
               label={{ value: "▶", position: "top", fill: "#fbbf24", fontSize: 10 }}
             />
           ))}
@@ -164,16 +184,20 @@ function Timeline({ slots, recommendations }) {
 // ── main App ───────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [mode, setMode] = useState("balanced");
-  const [tasks, setTasks] = useState([
+  const [city, setCity]       = useState("london");
+  const [mode, setMode]       = useState("balanced");
+  const [tasks, setTasks]     = useState([
     { ...TASK_TYPES[0], duration_mins: TASK_TYPES[0].defaultDuration },
   ]);
-  const [result, setResult] = useState(null);
+  const [result, setResult]   = useState(null);
+  const [compare, setCompare] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError]     = useState(null);
+
+  const cityTz = CITIES.find(c => c.id === city)?.tz ?? "Europe/London";
 
   function addTask(type) {
-    if (tasks.find(t => t.id === type.id)) return; // no duplicates
+    if (tasks.find(t => t.id === type.id)) return;
     setTasks(prev => [...prev, { ...type, duration_mins: type.defaultDuration }]);
   }
 
@@ -185,34 +209,40 @@ export default function App() {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
   }
 
+  const taskPayload = () => tasks.map(t => ({
+    type: t.id,
+    duration_mins: Number(t.duration_mins),
+    window_start: t.windowStart,
+    window_end: t.windowEnd,
+    deadline: t.deadline ?? null,
+  }));
+
   async function getPlan() {
-    setLoading(true);
-    setError(null);
-    setResult(null);
+    setLoading(true); setError(null); setResult(null); setCompare(null);
     try {
       const res = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: "London",
-          region_id: 13,
-          mode,
-          tasks: tasks.map(t => ({
-            type: t.id,
-            duration_mins: Number(t.duration_mins),
-            window_start: t.windowStart,
-            window_end: t.windowEnd,
-            deadline: t.deadline ?? null,
-          })),
-        }),
+        body: JSON.stringify({ city, mode, tasks: taskPayload() }),
       });
       if (!res.ok) throw new Error(`API error ${res.status}`);
       setResult(await res.json());
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  async function getCompare() {
+    setLoading(true); setError(null); setResult(null); setCompare(null);
+    try {
+      const res = await fetch("/api/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city, tasks: taskPayload() }),
+      });
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      setCompare(await res.json());
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }
 
   const addedIds = new Set(tasks.map(t => t.id));
@@ -222,7 +252,30 @@ export default function App() {
       {/* Hero */}
       <div className="hero">
         <h1>Climate &amp; Carbon-Aware <span>Planner</span></h1>
-        <p className="muted">Find the best time window for your tasks — low-carbon, low-cost, weather-ready · London</p>
+        <p className="muted">Find the best time window for your tasks — low-carbon, low-cost, weather-ready</p>
+      </div>
+
+      {/* City */}
+      <div className="card">
+        <div className="card-title">City</div>
+        <div className="mode-group">
+          {CITIES.map(c => (
+            <button
+              key={c.id}
+              className={`mode-btn${city === c.id ? " active" : ""}`}
+              onClick={() => { setCity(c.id); setResult(null); setCompare(null); }}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+        {city !== "london" && (
+          <p className="city-note">
+            {city === "paris"
+              ? "Carbon: RTE éco2mix cyclical proxy · Price data not available"
+              : "Carbon: Open-Meteo renewable model (estimated) · Price data not available"}
+          </p>
+        )}
       </div>
 
       {/* Mode */}
@@ -264,10 +317,7 @@ export default function App() {
               <span>
                 <label>Duration (min) </label>
                 <input
-                  type="number"
-                  min={30}
-                  step={30}
-                  value={t.duration_mins}
+                  type="number" min={30} step={30} value={t.duration_mins}
                   onChange={e => updateTask(t.id, "duration_mins", e.target.value)}
                 />
               </span>
@@ -282,21 +332,35 @@ export default function App() {
           ))}
         </div>
 
-        <button className="plan-btn" onClick={getPlan} disabled={loading || tasks.length === 0}>
-          {loading ? "Fetching conditions…" : "Get Recommendations →"}
-        </button>
+        <div className="action-row">
+          <button className="plan-btn" onClick={getPlan} disabled={loading || tasks.length === 0}>
+            {loading ? "Fetching conditions…" : "Get Recommendations →"}
+          </button>
+          <button className="compare-btn" onClick={getCompare} disabled={loading || tasks.length === 0}>
+            Compare all modes
+          </button>
+        </div>
 
         {error && <p className="error-msg">Error: {error}</p>}
       </div>
 
-      {/* Results */}
+      {/* Single-mode results */}
       {result && (
         <>
           <p className="results-header">
             Recommendations · {result.location} · mode: <b>{result.mode}</b>
+            {result.carbon_label && <span className="carbon-label"> · {result.carbon_label}</span>}
           </p>
-          {result.recommendations.map((r, i) => <RecCard key={i} rec={r} idx={i} />)}
-          <Timeline slots={result.slots} recommendations={result.recommendations} />
+          {result.recommendations.map((r, i) => <RecCard key={i} rec={r} tz={cityTz} />)}
+          <Timeline slots={result.slots} recommendations={result.recommendations} tz={cityTz} />
+        </>
+      )}
+
+      {/* Comparison results */}
+      {compare && (
+        <>
+          <CompareView result={compare} tz={cityTz} />
+          <Timeline slots={compare.slots} recommendations={compare.modes.balanced} tz={cityTz} />
         </>
       )}
     </div>

@@ -10,24 +10,20 @@ from app.core.tasks import TEMPLATES
 from app.routers.forecast import build_grid_with_scores, row_to_slot
 from app.schemas import PlanRequest, PlanResponse, RecommendationOut
 
+
 router = APIRouter()
 
 
-@router.post("/api/plan", response_model=PlanResponse)
-async def plan(req: PlanRequest):
-    if not req.tasks:
-        raise HTTPException(status_code=422, detail="Provide at least one task")
-
-    df = await build_grid_with_scores(req.region_id)
-    slots = [row_to_slot(ts, row) for ts, row in df.iterrows()]
+def _build_recommendations(df, city_cfg, tasks_in, mode: str) -> list[RecommendationOut]:
+    """Shared recommendation builder used by /plan and /compare."""
     recommendations = []
 
-    for task_in in req.tasks:
+    for task_in in tasks_in:
         tmpl = TEMPLATES.get(task_in.type)
         if tmpl is None:
             raise HTTPException(status_code=422, detail=f"Unknown task type: {task_in.type!r}")
 
-        fit = task_fit_scores(df, tmpl.weather_profile, req.mode)
+        fit = task_fit_scores(df, tmpl.weather_profile, mode)
 
         windows = find_windows(
             fit_scores=fit,
@@ -37,6 +33,7 @@ async def plan(req: PlanRequest):
             deadline=task_in.deadline,
             weather_profile=tmpl.weather_profile,
             slot_grid=df,
+            tz=city_cfg.tz,
         )
 
         if not windows:
@@ -56,7 +53,6 @@ async def plan(req: PlanRequest):
         primary = windows[0]
         backup = windows[1] if len(windows) > 1 else None
 
-        # Mean scores over the primary window
         p_start, p_end = primary[0], primary[1]
         mask = (df.index >= p_start) & (df.index < p_end)
         window_df = df[mask] if mask.any() else df.iloc[:1]
@@ -73,7 +69,9 @@ async def plan(req: PlanRequest):
         weather_col = f"weather_score_{tmpl.weather_profile}" if tmpl.weather_profile else None
         weather_s = _w(weather_col) if weather_col else None
 
-        carbon_saved, cost_saved = compute_savings(tmpl, p_start, task_in.duration_mins, df)
+        carbon_saved, cost_saved = compute_savings(
+            tmpl, p_start, task_in.duration_mins, df, city_cfg.tz
+        )
         reason = build_reason(task_in.type, tmpl.label, carbon_s, price_s, weather_s, carbon_saved, cost_saved)
 
         recommendations.append(RecommendationOut(
@@ -90,9 +88,23 @@ async def plan(req: PlanRequest):
             reason=reason,
         ))
 
+    return recommendations
+
+
+@router.post("/api/plan", response_model=PlanResponse)
+async def plan(req: PlanRequest):
+    if not req.tasks:
+        raise HTTPException(status_code=422, detail="Provide at least one task")
+
+    df, city_cfg = await build_grid_with_scores(req.city)
+    slots = [row_to_slot(ts, row) for ts, row in df.iterrows()]
+    recommendations = _build_recommendations(df, city_cfg, req.tasks, req.mode)
+
     return PlanResponse(
         recommendations=recommendations,
         slots=slots,
         mode=req.mode,
-        location=req.location,
+        location=city_cfg.name,
+        city=req.city,
+        carbon_label=city_cfg.carbon_label,
     )

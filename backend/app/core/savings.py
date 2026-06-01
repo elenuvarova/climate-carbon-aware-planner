@@ -7,12 +7,12 @@ import pandas as pd
 from app.core.tasks import DRYER_KWH, TaskTemplate
 
 LONDON = ZoneInfo("Europe/London")
-PEAK_HOURS = (17, 20)  # 17:00–20:00 local = typical UK evening peak
+PEAK_HOURS = (17, 20)  # 17:00–20:00 local = typical evening peak
 
 
-def _peak_averages(df: pd.DataFrame) -> tuple[float, float]:
-    """Average carbon intensity and price during UK evening-peak slots in the grid."""
-    local_hours = df.index.map(lambda dt: dt.astimezone(LONDON).hour)
+def _peak_averages(df: pd.DataFrame, tz: ZoneInfo = LONDON) -> tuple[float, float]:
+    """Average carbon intensity and price during evening-peak slots in the grid."""
+    local_hours = df.index.map(lambda dt: dt.astimezone(tz).hour)
     peak_mask = (local_hours >= PEAK_HOURS[0]) & (local_hours < PEAK_HOURS[1])
     peak = df[peak_mask]
 
@@ -30,6 +30,7 @@ def compute_savings(
     chosen_start,
     duration_mins: int,
     df: pd.DataFrame,
+    tz: ZoneInfo = LONDON,
 ) -> tuple[float, float]:
     """
     Returns (carbon_saved_kg, cost_saved_gbp) comparing the chosen window
@@ -43,7 +44,7 @@ def compute_savings(
     chosen_slots = df.iloc[pos: pos + n]
 
     ci_chosen = float(chosen_slots["ci_gco2"].mean()) if not chosen_slots.empty else float(df["ci_gco2"].mean())
-    ci_peak, price_peak = _peak_averages(df)
+    ci_peak, price_peak = _peak_averages(df, tz)
 
     # Carbon saving from shifting the task's own energy draw
     kwh = task.kwh

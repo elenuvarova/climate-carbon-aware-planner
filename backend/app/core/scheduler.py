@@ -9,10 +9,11 @@ LONDON = ZoneInfo("Europe/London")
 
 def _valid_starts(
     slots: pd.DatetimeIndex,
-    window_start: str,   # "HH:MM" local London time
-    window_end: str,     # "HH:MM" local London time
+    window_start: str,   # "HH:MM" local city time
+    window_end: str,     # "HH:MM" local city time
     duration_mins: int,
     deadline: str | None,  # "HH:MM" — must finish by next occurrence
+    tz: ZoneInfo = LONDON,
 ) -> pd.DatetimeIndex:
     """Return slot starts where the task can begin and fits entirely within the window."""
     ws_h, ws_m = map(int, window_start.split(":"))
@@ -26,7 +27,7 @@ def _valid_starts(
     if deadline:
         dl_h, dl_m = map(int, deadline.split(":"))
         now_utc = datetime.now(timezone.utc)
-        now_local = now_utc.astimezone(LONDON)
+        now_local = now_utc.astimezone(tz)
         dl_local = now_local.replace(hour=dl_h, minute=dl_m, second=0, microsecond=0)
         if dl_local <= now_local:
             dl_local = dl_local + timedelta(days=1)
@@ -34,8 +35,8 @@ def _valid_starts(
 
     valid = []
     for slot_utc in slots:
-        slot_local = slot_utc.astimezone(LONDON)
-        end_local = (slot_utc + duration).astimezone(LONDON)
+        slot_local = slot_utc.astimezone(tz)
+        end_local = (slot_utc + duration).astimezone(tz)
 
         slot_tod = slot_local.hour * 60 + slot_local.minute
         end_tod = end_local.hour * 60 + end_local.minute
@@ -63,6 +64,7 @@ def find_windows(
     deadline: str | None = None,
     weather_profile: str | None = None,
     slot_grid: pd.DataFrame | None = None,
+    tz: ZoneInfo = LONDON,
 ) -> list[tuple[datetime, datetime, float]]:
     """
     Returns up to 2 non-overlapping (start, end, mean_score) tuples, best first.
@@ -70,7 +72,7 @@ def find_windows(
     """
     duration = timedelta(minutes=duration_mins)
     n_slots = max(1, duration_mins // 30)
-    valid = _valid_starts(fit_scores.index, window_start, window_end, duration_mins, deadline)
+    valid = _valid_starts(fit_scores.index, window_start, window_end, duration_mins, deadline, tz)
 
     # Hard gate for weather tasks: drying slots where it's raining (score==0) are invalid
     invalid_slots: set = set()

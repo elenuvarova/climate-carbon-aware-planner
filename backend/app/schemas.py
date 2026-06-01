@@ -21,21 +21,24 @@ class SlotOut(BaseModel):
 class ForecastResponse(BaseModel):
     slots: list[SlotOut]
     location: str
-    region_id: int
+    city: str = "london"
+    carbon_label: str = ""
+    region_id: int = 13  # kept for backward compat
 
 
 class TaskIn(BaseModel):
     type: str           # laundry_airdry | laundry_dryer | dishwasher | ev_charge | ventilation
     duration_mins: int
-    window_start: str   # "HH:MM" — daily availability start, Europe/London
-    window_end: str     # "HH:MM" — daily availability end, Europe/London
+    window_start: str   # "HH:MM" — daily availability start, local city time
+    window_end: str     # "HH:MM" — daily availability end, local city time
     deadline: str | None = None  # "HH:MM" — must finish by (next occurrence)
 
 
 class PlanRequest(BaseModel):
     location: str = "London"
-    region_id: int = 13         # 13 = London (UK Carbon Intensity API region)
-    mode: str = "balanced"      # green | money | balanced
+    city: str = "london"          # "london" | "paris" | "antwerp"
+    region_id: int = 13           # legacy: ignored when city != "london"
+    mode: str = "balanced"        # green | money | balanced
     tasks: list[TaskIn]
 
 
@@ -58,3 +61,21 @@ class PlanResponse(BaseModel):
     slots: list[SlotOut]
     mode: str
     location: str
+    city: str = "london"
+    carbon_label: str = ""
+
+
+# ── Compare (all 3 modes in one call) ─────────────────────────────────────────
+
+class CompareRequest(BaseModel):
+    location: str = "London"
+    city: str = "london"
+    tasks: list[TaskIn]
+
+
+class CompareResponse(BaseModel):
+    location: str
+    city: str
+    carbon_label: str
+    slots: list[SlotOut]
+    modes: dict[str, list[RecommendationOut]]  # "balanced" | "green" | "money" → recs

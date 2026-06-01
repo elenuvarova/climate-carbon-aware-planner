@@ -3,8 +3,11 @@ import math
 import pandas as pd
 from fastapi import APIRouter
 
+from app.core.city_registry import get_city
 from app.core.scoring import add_global_scores, add_weather_scores
 from app.core.slots import build_slot_grid
+from app.providers.carbon_be import fetch_carbon_be
+from app.providers.carbon_fr import fetch_carbon_fr
 from app.providers.carbon_uk import fetch_carbon
 from app.providers.price_octopus import fetch_price
 from app.providers.weather_openmeteo import fetch_weather
@@ -41,20 +44,44 @@ def row_to_slot(ts: pd.Timestamp, row: pd.Series) -> SlotOut:
     )
 
 
-async def build_grid_with_scores(region_id: int = 13):
-    """Shared pipeline: fetch all three sources → slot grid → scored DataFrame."""
-    carbon = await fetch_carbon(region_id)
-    price = await fetch_price()
-    weather = await fetch_weather()
+async def build_grid_with_scores(city_id: str = "london"):
+    """Shared pipeline: fetch providers → slot grid → scored DataFrame.
+
+    Returns (df, city) so callers have access to timezone and metadata.
+    """
+    city = get_city(city_id)
+
+    # Carbon — dispatch by provider type
+    if city.carbon_provider == "uk":
+        carbon = await fetch_carbon(city.region_id or 13)
+    elif city.carbon_provider == "fr":
+        carbon = await fetch_carbon_fr()
+    else:  # "be"
+        carbon = await fetch_carbon_be(city.lat, city.lon)
+
+    # Price — Octopus Agile for London; empty series otherwise
+    if city.price_provider == "octopus":
+        price = await fetch_price()
+    else:
+        price = pd.Series(dtype=float)
+
+    # Weather — Open-Meteo for city coordinates
+    weather = await fetch_weather(city.lat, city.lon)
 
     df = build_slot_grid(carbon, price, weather)
     df = add_global_scores(df)
     df = add_weather_scores(df)
-    return df
+    return df, city
 
 
 @router.get("/api/forecast", response_model=ForecastResponse)
-async def forecast(region_id: int = 13):
-    df = await build_grid_with_scores(region_id)
+async def forecast(city: str = "london"):
+    df, city_cfg = await build_grid_with_scores(city)
     slots = [row_to_slot(ts, row) for ts, row in df.iterrows()]
-    return ForecastResponse(slots=slots, location="London", region_id=region_id)
+    return ForecastResponse(
+        slots=slots,
+        location=city_cfg.name,
+        city=city,
+        carbon_label=city_cfg.carbon_label,
+        region_id=city_cfg.region_id or 0,
+    )
