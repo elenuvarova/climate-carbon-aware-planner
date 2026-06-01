@@ -48,7 +48,7 @@ CITIES: dict[str, City] = {
         carbon_provider="be",
         price_provider=None,
         region_id=None,
-        carbon_label="Open-Meteo renewable model (estimated — pending Elia integration)",
+        carbon_label="Elia open data ods192 (consumption-based CO₂, cyclical proxy)",
     ),
 }
 

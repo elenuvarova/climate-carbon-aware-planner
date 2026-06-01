@@ -1,16 +1,17 @@
-"""Belgium carbon intensity — modelled estimate via Open-Meteo.
+"""Belgium carbon intensity via Elia open data (free, no auth, CC-BY).
 
-Uses renewable generation proxies (solar radiation + wind speed) together
-with the Belgian grid baseline to estimate a 48-h forward CI series.
+Dataset ods191 — Production-Based & Consumption-Based CO₂ Intensity Belgium,
+near real-time, updated every hour.
+
+We use the `consumption` field (gCO2eq/kWh) which includes cross-border flows
+and is more accurate for household scheduling than production-based intensity.
 
 Belgian grid 2024 characteristics:
-  - Average CI: ~165 gCO₂/kWh
-  - Nuclear: ~40%, Gas: ~25%, Renewables: ~25%, Imports: ~10%
-  - Typical range: 50–200 gCO₂/kWh
+  - Nuclear ~40%, Gas ~25%, Renewables ~25%, Imports ~10%
+  - Typical consumption-based CI: 80–220 gCO2eq/kWh
 
-This is an approximation — a proper integration would use the Elia open data
-API (opendata.elia.be) once a reliable free forecast endpoint is confirmed.
-Clearly labelled in the UI as "modelled estimate".
+Forward 48h/7d series built via cyclical time-of-day proxy — same approach
+as the France provider — since Elia publishes actuals, not forecasts.
 """
 import logging
 from datetime import datetime, timezone
@@ -22,115 +23,102 @@ from app.http_client import client
 
 log = logging.getLogger(__name__)
 
-_cache: TTLCache = TTLCache(maxsize=8, ttl=3600)  # 1-h TTL (model is stable)
+_cache: TTLCache = TTLCache(maxsize=8, ttl=1800)  # 30-min TTL
 
-BASELINE_GCO2 = 165.0  # gCO₂/kWh, Belgian annual average 2024
+BASE = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/ods192/records"
+PAGE_SIZE = 100
 
 
 def _bucket() -> str:
     now = datetime.now(timezone.utc)
-    return now.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H")
+    m = (now.minute // 30) * 30
+    return now.replace(minute=m, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
 
 
-def _estimate_ci(solar_wm2: float, wind_ms: float, hour_utc: int) -> float:
-    """Estimate Belgian grid CI from renewable generation proxies."""
-    solar_reduction = min(45.0, (solar_wm2 or 0.0) / 150.0)
-    wind_reduction = min(65.0, (wind_ms or 0.0) * 4.0)
+async def _fetch_page(offset: int = 0) -> list[dict]:
+    params = {
+        "select": "datetime,consumption",
+        "where": "consumption is not null",
+        "order_by": "datetime desc",
+        "limit": PAGE_SIZE,
+        "offset": offset,
+    }
+    r = await client().get(BASE, params=params)
+    r.raise_for_status()
+    return r.json().get("results", [])
 
-    # Local CET/CEST ≈ UTC+1 (winter) / UTC+2 (summer) — rough approximation
-    local_hour = (hour_utc + 1) % 24
-    is_morning_peak = 7 <= local_hour < 10
-    is_evening_peak = 16 <= local_hour < 20
-    demand_bump = 25.0 if (is_morning_peak or is_evening_peak) else 0.0
-    night_discount = -20.0 if local_hour < 6 else 0.0
 
-    return max(45.0, BASELINE_GCO2 - solar_reduction - wind_reduction + demand_bump + night_discount)
+async def _fetch_actuals() -> pd.Series:
+    """Fetch last ~200 hourly records and interpolate to 30-min resolution."""
+    page0 = await _fetch_page(0)
+    page1 = await _fetch_page(PAGE_SIZE)
+    raw = page0 + page1
+
+    if not raw:
+        raise ValueError("Empty Elia ods191 response")
+
+    index = pd.to_datetime([r["datetime"] for r in raw], utc=True)
+    values = [float(r["consumption"]) for r in raw]
+
+    actuals = pd.Series(data=values, index=index).sort_index()
+    # Elia publishes hourly; resample → 30-min via linear interpolation
+    return actuals.resample("30min").interpolate(method="linear").dropna()
+
+
+def _build_forward(actuals: pd.Series, periods: int) -> pd.Series:
+    """Build a forward series of `periods` slots via cyclical time-of-day proxy."""
+    mean_ci = float(actuals.mean())
+    now_utc = pd.Timestamp.now(tz="UTC").floor("30min")
+    forward_index = pd.date_range(start=now_utc, periods=periods, freq="30min")
+
+    forward_values: list[float] = []
+    for ts in forward_index:
+        val = mean_ci
+        for lag_h in (24, 48, 72):
+            ref = ts - pd.Timedelta(hours=lag_h)
+            diffs = abs(actuals.index - ref)
+            if len(diffs) == 0:
+                break
+            min_i = int(diffs.argmin())
+            if diffs[min_i] < pd.Timedelta(minutes=30):
+                val = float(actuals.iloc[min_i])
+                break
+        forward_values.append(val)
+
+    return pd.Series(data=forward_values, index=forward_index)
 
 
 async def fetch_carbon_be(lat: float = 51.2194, lon: float = 4.4025) -> pd.Series:
     """
-    Returns a pd.Series of estimated gCO₂/kWh indexed by UTC slot-start
-    (30-min resolution, ~48 h), derived from Open-Meteo solar + wind forecast.
+    Returns a pd.Series of gCO2eq/kWh indexed by UTC slot-start
+    (30-min resolution, 96 slots ≈ 48 h).
+    lat/lon kept for API compatibility; Elia data is national.
     """
     key = f"carbon_be:{_bucket()}"
     if key in _cache:
         return _cache[key]
 
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "hourly": "shortwave_radiation,wind_speed_10m",
-        "forecast_days": 3,
-        "timezone": "UTC",
-    }
-
     try:
-        r = await client().get("https://api.open-meteo.com/v1/forecast", params=params)
-        r.raise_for_status()
-        hourly = r.json()["hourly"]
-
-        times = pd.to_datetime(hourly["time"], utc=True)
-        solar = hourly.get("shortwave_radiation") or [0.0] * len(times)
-        wind = hourly.get("wind_speed_10m") or [0.0] * len(times)
-
-        values = [
-            _estimate_ci(solar[i], wind[i], int(ts.hour))
-            for i, ts in enumerate(times)
-        ]
-
-        hourly_series = pd.Series(data=values, index=times)
-        # Interpolate to 30-min resolution
-        series = hourly_series.resample("30min").interpolate(method="linear")
-
-        # Trim to 48 h from now
-        now_utc = pd.Timestamp.now(tz="UTC").floor("30min")
-        series = series[series.index >= now_utc].iloc[:96]
-
+        actuals = await _fetch_actuals()
+        series = _build_forward(actuals, 96)
         _cache[key] = series
         return series
-
     except Exception as exc:
-        log.error("Belgium carbon model (Open-Meteo) failed: %s", exc)
+        log.error("Belgium carbon (Elia ods191) failed: %s", exc)
         raise
 
 
 async def fetch_carbon_be_7d(lat: float = 51.2194, lon: float = 4.4025) -> pd.Series:
-    """7-day carbon series (336 slots) from Open-Meteo 7-day weather forecast."""
+    """7-day forward series (336 slots) via cyclical proxy from Elia actuals."""
     key = f"carbon_be_7d:{_bucket()}"
     if key in _cache:
         return _cache[key]
 
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "hourly": "shortwave_radiation,wind_speed_10m",
-        "forecast_days": 8,
-        "timezone": "UTC",
-    }
-
     try:
-        r = await client().get("https://api.open-meteo.com/v1/forecast", params=params)
-        r.raise_for_status()
-        hourly = r.json()["hourly"]
-
-        times = pd.to_datetime(hourly["time"], utc=True)
-        solar = hourly.get("shortwave_radiation") or [0.0] * len(times)
-        wind = hourly.get("wind_speed_10m") or [0.0] * len(times)
-
-        values = [
-            _estimate_ci(solar[i], wind[i], int(ts.hour))
-            for i, ts in enumerate(times)
-        ]
-
-        hourly_series = pd.Series(data=values, index=times)
-        series = hourly_series.resample("30min").interpolate(method="linear")
-
-        now_utc = pd.Timestamp.now(tz="UTC").floor("30min")
-        series = series[series.index >= now_utc].iloc[:336]
-
+        actuals = await _fetch_actuals()
+        series = _build_forward(actuals, 336)
         _cache[key] = series
         return series
-
     except Exception as exc:
-        log.error("Belgium 7d carbon model (Open-Meteo) failed: %s", exc)
+        log.error("Belgium 7d carbon (Elia ods191) failed: %s", exc)
         raise
