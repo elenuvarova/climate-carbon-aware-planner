@@ -1,16 +1,20 @@
+import logging
 import math
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
+from app import models
 from app.core.savings import build_reason, compute_savings
 from app.core.scheduler import find_windows
 from app.core.scoring import task_fit_scores
 from app.core.tasks import TEMPLATES
+from app.db import get_db
 from app.routers.forecast import build_grid_with_scores, row_to_slot
 from app.schemas import PlanRequest, PlanResponse, RecommendationOut
 
-
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -92,13 +96,54 @@ def _build_recommendations(df, city_cfg, tasks_in, mode: str) -> list[Recommenda
 
 
 @router.post("/api/plan", response_model=PlanResponse)
-async def plan(req: PlanRequest):
+async def plan(req: PlanRequest, db: Session = Depends(get_db)):
     if not req.tasks:
         raise HTTPException(status_code=422, detail="Provide at least one task")
 
     df, city_cfg = await build_grid_with_scores(req.city)
     slots = [row_to_slot(ts, row) for ts, row in df.iterrows()]
     recommendations = _build_recommendations(df, city_cfg, req.tasks, req.mode)
+
+    plan_id: int | None = None
+    try:
+        db_plan = models.Plan(
+            location=city_cfg.name,
+            region_id=city_cfg.region_id or 0,
+            mode=req.mode,
+        )
+        db.add(db_plan)
+        db.flush()
+
+        for task_in, rec in zip(req.tasks, recommendations):
+            tmpl = TEMPLATES.get(task_in.type)
+            db_task = models.Task(
+                plan_id=db_plan.id,
+                type=task_in.type,
+                duration_mins=task_in.duration_mins,
+                window_start=task_in.window_start,
+                window_end=task_in.window_end,
+                deadline=task_in.deadline,
+                kwh=tmpl.kwh if tmpl else 1.0,
+            )
+            db.add(db_task)
+            db.flush()
+            db.add(models.Recommendation(
+                task_id=db_task.id,
+                primary_start=rec.primary_start,
+                primary_end=rec.primary_end,
+                backup_start=rec.backup_start,
+                backup_end=rec.backup_end,
+                carbon_saved_kg=rec.carbon_saved_kg,
+                cost_saved_gbp=rec.cost_saved_gbp,
+                score=rec.score,
+                reason=rec.reason,
+            ))
+
+        db.commit()
+        plan_id = db_plan.id
+    except Exception as exc:
+        db.rollback()
+        log.warning("Failed to persist plan: %s", exc)
 
     return PlanResponse(
         recommendations=recommendations,
@@ -107,4 +152,5 @@ async def plan(req: PlanRequest):
         location=city_cfg.name,
         city=req.city,
         carbon_label=city_cfg.carbon_label,
+        plan_id=plan_id,
     )

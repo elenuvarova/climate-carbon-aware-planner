@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -52,3 +52,14 @@ class Recommendation(Base):
     reason: Mapped[str] = mapped_column(String, default="")
 
     task: Mapped["Task"] = relationship("Task", back_populates="recommendation")
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"))
+    task_type: Mapped[str] = mapped_column(String)
+    followed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1–5
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

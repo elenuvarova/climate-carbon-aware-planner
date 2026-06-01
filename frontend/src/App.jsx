@@ -222,6 +222,64 @@ function Timeline({ slots, recommendations, tz = "Europe/London" }) {
   );
 }
 
+function HistoryView({ plans, onFeedback, feedbackSent }) {
+  if (!plans?.length) return (
+    <div className="card" style={{ color: "#6b7280", fontSize: ".875rem" }}>No plans saved yet — get a recommendation first.</div>
+  );
+
+  const modeLabel = { balanced: "⚖️ Balanced", green: "💚 Green", money: "💰 Money" };
+  const modeClass = { balanced: "", green: "green", money: "money" };
+
+  return (
+    <div>
+      <p className="results-header">Recent plans</p>
+      <div className="history-list">
+        {plans.map(plan => (
+          <div key={plan.id} className="history-item">
+            <div className="history-item-header">
+              <span className="history-item-meta">
+                {plan.location} · {new Date(plan.created_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+              </span>
+              <span className={`history-item-mode ${modeClass[plan.mode] || ""}`}>
+                {modeLabel[plan.mode] || plan.mode}
+              </span>
+            </div>
+            <div className="history-recs">
+              {plan.recommendations.map(rec => {
+                const key = `${plan.id}:${rec.task_type}`;
+                const sent = feedbackSent.has(key);
+                return (
+                  <div key={rec.task_type} className="history-rec-row">
+                    <span className="history-rec-label">{rec.task_label}</span>
+                    <span className="history-rec-time">{fmtTime(rec.primary_start, "Europe/London")}</span>
+                    {rec.carbon_saved_kg > 0.02 && (
+                      <span className="history-rec-saving">↓ {rec.carbon_saved_kg.toFixed(1)} kg</span>
+                    )}
+                    <div className="feedback-btns">
+                      <button
+                        className={`feedback-btn${sent ? " sent" : ""}`}
+                        disabled={sent}
+                        title="I followed this"
+                        onClick={() => !sent && onFeedback(plan.id, rec.task_type, true)}
+                      >✓</button>
+                      <button
+                        className={`feedback-btn${sent ? " sent" : ""}`}
+                        disabled={sent}
+                        title="I didn't follow this"
+                        onClick={() => !sent && onFeedback(plan.id, rec.task_type, false)}
+                      >✗</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── main App ───────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -232,9 +290,11 @@ export default function App() {
   ]);
   const [result, setResult]   = useState(null);
   const [compare, setCompare] = useState(null);
-  const [weekly, setWeekly]   = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState(null);
+  const [weekly, setWeekly]       = useState(null);
+  const [history, setHistory]     = useState(null);
+  const [feedbackSent, setFeedbackSent] = useState(new Set());
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
 
   const cityTz = CITIES.find(c => c.id === city)?.tz ?? "Europe/London";
 
@@ -259,8 +319,31 @@ export default function App() {
     deadline: t.deadline ?? null,
   }));
 
+  async function getHistory() {
+    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null); setHistory(null);
+    try {
+      const res = await fetch("/api/plans");
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const data = await res.json();
+      setHistory(data.plans);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  async function sendFeedback(planId, taskType, followed) {
+    const key = `${planId}:${taskType}`;
+    setFeedbackSent(prev => new Set([...prev, key]));
+    try {
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan_id: planId, task_type: taskType, followed }),
+      });
+    } catch (_) {}
+  }
+
   async function getPlan() {
-    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null);
+    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null); setHistory(null);
     try {
       const res = await fetch("/api/plan", {
         method: "POST",
@@ -274,7 +357,7 @@ export default function App() {
   }
 
   async function getCompare() {
-    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null);
+    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null); setHistory(null);
     try {
       const res = await fetch("/api/compare", {
         method: "POST",
@@ -288,7 +371,7 @@ export default function App() {
   }
 
   async function getWeekly() {
-    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null);
+    setLoading(true); setError(null); setResult(null); setCompare(null); setWeekly(null); setHistory(null);
     try {
       const res = await fetch("/api/weekly", {
         method: "POST",
@@ -319,7 +402,7 @@ export default function App() {
             <button
               key={c.id}
               className={`mode-btn${city === c.id ? " active" : ""}`}
-              onClick={() => { setCity(c.id); setResult(null); setCompare(null); setWeekly(null); }}
+              onClick={() => { setCity(c.id); setResult(null); setCompare(null); setWeekly(null); setHistory(null); }}
             >
               {c.label}
             </button>
@@ -398,6 +481,9 @@ export default function App() {
           <button className="weekly-btn" onClick={getWeekly} disabled={loading || tasks.length === 0}>
             Weekly brief
           </button>
+          <button className="history-btn" onClick={getHistory} disabled={loading}>
+            History
+          </button>
         </div>
 
         {error && <p className="error-msg">Error: {error}</p>}
@@ -425,6 +511,11 @@ export default function App() {
 
       {/* Weekly brief */}
       {weekly && <WeeklyView result={weekly} tz={cityTz} />}
+
+      {/* History */}
+      {history !== null && (
+        <HistoryView plans={history} onFeedback={sendFeedback} feedbackSent={feedbackSent} />
+      )}
     </div>
   );
 }

@@ -63,6 +63,31 @@ class PlanResponse(BaseModel):
     location: str
     city: str = "london"
     carbon_label: str = ""
+    plan_id: int | None = None
+
+
+# ── History ───────────────────────────────────────────────────────────────────
+
+class PlanHistoryItem(BaseModel):
+    id: int
+    created_at: str
+    location: str
+    mode: str
+    city: str = ""
+    recommendations: list[RecommendationOut]
+
+
+class PlansResponse(BaseModel):
+    plans: list[PlanHistoryItem]
+
+
+# ── Feedback ──────────────────────────────────────────────────────────────────
+
+class FeedbackIn(BaseModel):
+    plan_id: int
+    task_type: str
+    followed: bool | None = None
+    rating: int | None = None   # 1–5
 
 
 # ── Compare (all 3 modes in one call) ─────────────────────────────────────────

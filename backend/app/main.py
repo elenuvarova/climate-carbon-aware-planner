@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app import http_client
 from app.config import settings
 from app.db import Base, db_kind, engine
-from app.routers import compare, forecast, health, plan, weekly
+from app.routers import compare, forecast, health, history, plan, weekly
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ app.include_router(forecast.router)
 app.include_router(plan.router)
 app.include_router(compare.router)
 app.include_router(weekly.router)
+app.include_router(history.router)
 
 # Serve built frontend in production
 _public = Path(__file__).parent.parent / "public"
