@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     sqlite_path: str = "./data.sqlite"
     port: int = 3001
     node_env: str = "development"
+    groq_api_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

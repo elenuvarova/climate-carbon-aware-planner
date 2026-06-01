@@ -9,7 +9,8 @@ The weekly carbon data (~500 tokens) fits in a single prompt — no RAG / vector
 search needed for this use case.
 """
 import logging
-import os
+
+from app.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ async def generate_brief(city: str, days: list, carbon_label: str) -> str:
     Returns:
         A 100-150 word brief in British English prose.
     """
-    api_key = os.environ.get("GROQ_API_KEY")
+    api_key = settings.groq_api_key
     if not api_key:
         return _template_brief(city, days)
 
