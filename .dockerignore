@@ -4,6 +4,11 @@ build
 .env
 .env.local
 .env.*
+# Exclude env files in ANY subdirectory (e.g. backend/.env) — bare .env only
+# matches the build-context root, so the glob is required to keep secrets out
+# of the image. Secrets are injected as Coolify env vars at runtime instead.
+**/.env
+**/.env.*
 .git
 *.log
 .DS_Store
