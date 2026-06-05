@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app import http_client
 from app.config import settings
 from app.db import Base, db_kind, engine
+from app.ratelimit import rate_limit_middleware
 from app.routers import compare, forecast, health, history, plan, weekly
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -33,6 +34,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Per-IP rate limit on /api/* (skips /api/health). Blunts scripted abuse of the
+# endpoints that hit external APIs and the Groq LLM.
+app.middleware("http")(rate_limit_middleware)
 
 app.include_router(health.router)
 app.include_router(forecast.router)

@@ -8,11 +8,25 @@ Replaces the original Claude API plan with a free-tier alternative:
 The weekly carbon data (~500 tokens) fits in a single prompt — no RAG / vector
 search needed for this use case.
 """
+import hashlib
+import json
 import logging
+
+from cachetools import TTLCache
 
 from app.config import settings
 
 log = logging.getLogger(__name__)
+
+# Cache successful briefs so repeated /api/weekly hits don't re-spend Groq quota.
+# Keyed by a digest of (city, days payload); upstream carbon data is itself
+# cached ~30 min, so identical inputs recur. 30-min TTL keeps it fresh.
+_brief_cache: TTLCache = TTLCache(maxsize=256, ttl=1800)
+
+
+def _cache_key(city: str, days: list) -> str:
+    blob = json.dumps([city, days], sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()
 
 
 def _template_brief(city: str, days: list) -> str:
@@ -53,6 +67,11 @@ async def generate_brief(city: str, days: list, carbon_label: str) -> str:
     if not api_key:
         return _template_brief(city, days)
 
+    key = _cache_key(city, days)
+    cached = _brief_cache.get(key)
+    if cached is not None:
+        return cached
+
     try:
         from groq import AsyncGroq
 
@@ -86,7 +105,9 @@ async def generate_brief(city: str, days: list, carbon_label: str) -> str:
             max_tokens=300,
             temperature=0.6,
         )
-        return chat.choices[0].message.content.strip()
+        brief = chat.choices[0].message.content.strip()
+        _brief_cache[key] = brief
+        return brief
 
     except Exception as exc:
         log.warning("Groq brief generation failed: %s", exc)

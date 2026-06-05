@@ -32,7 +32,7 @@ FastAPI (backend)
     providers/   →  carbon_uk · carbon_fr · carbon_be · price_octopus · weather_openmeteo
     core/        →  scoring · scheduler · savings
     routers/     →  plan · compare · forecast · weekly · history
-    db.py        →  SQLite locally / Neon Postgres on Render
+    db.py        →  SQLite locally / Postgres in prod
 ```
 
 ### 4-axis scoring engine
@@ -100,7 +100,7 @@ Open [http://localhost:5173](http://localhost:5173). Vite proxies all `/api` req
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | No (uses SQLite) | Neon/Postgres connection string for production |
+| `DATABASE_URL` | No (uses SQLite) | Postgres connection string for production; blank locally falls back to SQLite |
 | `GROQ_API_KEY` | No | Enables AI weekly briefs; falls back to template text without it |
 
 Copy `.env.example` → `backend/.env` and fill in values.
@@ -151,15 +151,19 @@ Modes: `balanced` · `green` · `money`
 
 ---
 
-## Deploying to Render
+## Deploying
 
-1. Push to GitHub.
-2. Render → **New → Blueprint** → connect repo → Render reads `render.yaml`.
-3. In **Environment Variables**, add manually:
-   - `DATABASE_URL` — Neon connection string (`postgresql://...`)
-   - `GROQ_API_KEY` — from [console.groq.com](https://console.groq.com) (free)
+The app ships as a single Docker image (multi-stage: Vite build → Python runtime;
+uvicorn serves both the API and the built SPA on port 3001). It runs on
+[Coolify](https://coolify.io) (self-hosted Docker PaaS) at
+[greenhours.ontwrpn.com](https://greenhours.ontwrpn.com), but the image is
+platform-agnostic — any Docker host works.
 
-> **Free-tier note:** Render web services sleep after inactivity — expect a ~30s cold start. Neon Postgres (recommended over Render's free DB, which expires after 90 days) stays active indefinitely on the free tier.
+1. Push to GitHub (auto-deploy fires on push to `main`).
+2. Point the host at the repo's `Dockerfile`; expose port `3001`; health check `/api/health`.
+3. Set environment variables:
+   - `DATABASE_URL` — Postgres connection string (`postgresql://...`); omit to use SQLite. Add `?sslmode=require` only if your provider needs it (managed Postgres like Neon does; Coolify-internal Postgres does not).
+   - `GROQ_API_KEY` — from [console.groq.com](https://console.groq.com) (free); optional, falls back to template briefs.
 
 ---
 
@@ -185,7 +189,6 @@ Modes: `balanced` · `green` · `money`
 │       ├── App.jsx
 │       └── styles.css
 ├── Dockerfile                   Multi-stage: Node build → Python deps → runtime
-├── render.yaml                  Render Blueprint (web service only — DB is Neon)
 ├── .env.example
 └── docs/
     ├── implementation-plan.md

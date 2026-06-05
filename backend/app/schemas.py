@@ -1,6 +1,23 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+import re
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.tasks import TEMPLATES
+
+# "HH:MM" 24-hour time, 00:00–23:59
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_TASK_TYPES = set(TEMPLATES)
+City = Literal["london", "paris", "antwerp"]
+Mode = Literal["green", "money", "balanced"]
+
+
+def _check_hhmm(v: str) -> str:
+    if not _HHMM.match(v):
+        raise ValueError(f"expected HH:MM (00:00–23:59), got {v!r}")
+    return v
 
 
 class SlotOut(BaseModel):
@@ -28,18 +45,35 @@ class ForecastResponse(BaseModel):
 
 class TaskIn(BaseModel):
     type: str           # laundry_airdry | laundry_dryer | dishwasher | ev_charge | ventilation
-    duration_mins: int
+    duration_mins: int = Field(ge=30, le=1440)  # one 30-min slot … 24 h
     window_start: str   # "HH:MM" — daily availability start, local city time
     window_end: str     # "HH:MM" — daily availability end, local city time
     deadline: str | None = None  # "HH:MM" — must finish by (next occurrence)
 
+    @field_validator("type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        if v not in _TASK_TYPES:
+            raise ValueError(f"unknown task type {v!r}; expected one of {sorted(_TASK_TYPES)}")
+        return v
+
+    @field_validator("window_start", "window_end")
+    @classmethod
+    def _valid_window(cls, v: str) -> str:
+        return _check_hhmm(v)
+
+    @field_validator("deadline")
+    @classmethod
+    def _valid_deadline(cls, v: str | None) -> str | None:
+        return _check_hhmm(v) if v is not None else v
+
 
 class PlanRequest(BaseModel):
     location: str = "London"
-    city: str = "london"          # "london" | "paris" | "antwerp"
+    city: City = "london"
     region_id: int = 13           # legacy: ignored when city != "london"
-    mode: str = "balanced"        # green | money | balanced
-    tasks: list[TaskIn]
+    mode: Mode = "balanced"
+    tasks: list[TaskIn] = Field(min_length=1, max_length=20)
 
 
 class RecommendationOut(BaseModel):
@@ -84,18 +118,18 @@ class PlansResponse(BaseModel):
 # ── Feedback ──────────────────────────────────────────────────────────────────
 
 class FeedbackIn(BaseModel):
-    plan_id: int
-    task_type: str
+    plan_id: int = Field(ge=1)
+    task_type: str = Field(min_length=1, max_length=64)
     followed: bool | None = None
-    rating: int | None = None   # 1–5
+    rating: int | None = Field(default=None, ge=1, le=5)
 
 
 # ── Compare (all 3 modes in one call) ─────────────────────────────────────────
 
 class CompareRequest(BaseModel):
     location: str = "London"
-    city: str = "london"
-    tasks: list[TaskIn]
+    city: City = "london"
+    tasks: list[TaskIn] = Field(min_length=1, max_length=20)
 
 
 class CompareResponse(BaseModel):
@@ -124,8 +158,8 @@ class DayBrief(BaseModel):
 
 
 class WeeklyRequest(BaseModel):
-    city: str = "london"
-    tasks: list[TaskIn]
+    city: City = "london"
+    tasks: list[TaskIn] = Field(min_length=1, max_length=20)
 
 
 class WeeklyResponse(BaseModel):
