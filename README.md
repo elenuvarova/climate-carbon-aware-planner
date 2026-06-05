@@ -2,7 +2,7 @@
 
 A household scheduling tool that recommends the best time windows to run flexible appliances — low-carbon, low-cost, and weather-suitable — and shows you the exact **£ saved** and **kg CO₂ avoided** vs running at the evening peak.
 
-**[Live demo →](https://carbon-planner-web.onrender.com)** · [Case study →](https://www.notion.so/3722ead75652815ca031f2deccb087a0)
+**[Live demo →](https://greenhours.ontwrpn.com)** · [Case study →](https://www.notion.so/3722ead75652815ca031f2deccb087a0)
 
 > The UK grid swings from ~50 to ~380 gCO₂/kWh within a single day. This tool turns that signal into a named time window — no smart meter, no solar panels, no hardware required.
 
