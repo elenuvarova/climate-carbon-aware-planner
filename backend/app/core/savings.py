@@ -4,10 +4,13 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from app.core.tasks import DRYER_KWH, TaskTemplate
+from app.core.tasks import TaskTemplate
 
 LONDON = ZoneInfo("Europe/London")
 PEAK_HOURS = (17, 20)  # 17:00–20:00 local = typical evening peak
+# Fallback evening-peak price (p/kWh) used to value dryer-avoidance when a city
+# has no live price feed; roughly a typical UK peak rate.
+FALLBACK_PEAK_PRICE_P = 20.0
 
 
 def _peak_averages(df: pd.DataFrame, tz: ZoneInfo = LONDON) -> tuple[float, float]:
@@ -61,7 +64,7 @@ def compute_savings(
         price_chosen = float(chosen_slots["price_p"].mean())
         price_diff = (price_peak or price_chosen) - price_chosen
         cost_shift = kwh * price_diff / 100  # £
-        cost_avoided = task.avoided_kwh * (price_peak or 20.0) / 100
+        cost_avoided = task.avoided_kwh * (price_peak or FALLBACK_PEAK_PRICE_P) / 100
     else:
         cost_shift = 0.0
         cost_avoided = 0.0

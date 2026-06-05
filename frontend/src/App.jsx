@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceLine, ResponsiveContainer, Legend, Brush,
+  ReferenceArea, ResponsiveContainer, Legend, Brush,
 } from "recharts";
 
 // ── constants ──────────────────────────────────────────────────────────────
@@ -80,6 +80,29 @@ function useTheme() {
   return [theme, toggle];
 }
 
+// True on phone-width viewports — used to thin out chart axis ticks.
+function useNarrow(maxWidth = 600) {
+  const query = `(max-width: ${maxWidth}px)`;
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = e => setNarrow(e.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [query]);
+  return narrow;
+}
+
+// Classify a 0-100 carbon score into a traffic-light status (country-agnostic).
+function gridStatus(carbonScore) {
+  if (carbonScore == null) return { cls: "moderate", label: "—" };
+  if (carbonScore >= 66) return { cls: "clean", label: "Clean" };
+  if (carbonScore >= 33) return { cls: "moderate", label: "Average" };
+  return { cls: "high", label: "Carbon-heavy" };
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function fmtTime(isoStr, tz = "Europe/London") {
@@ -147,7 +170,7 @@ function Tour({ steps, onClose }) {
   useEffect(() => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [i, isLast, onClose]);
 
   return (
     <div className="tour-overlay" role="dialog" aria-modal="true" aria-label="Product tour">
@@ -274,7 +297,8 @@ function RecCard({ rec, tz, currency = "£" }) {
   );
 }
 
-function Timeline({ slots, recommendations, tz = "Europe/London", theme = "dark" }) {
+function Timeline({ slots, recommendations, tz = "Europe/London", theme = "dark", title }) {
+  const narrow = useNarrow();
   if (!slots?.length) return null;
 
   const c = CHART_COLORS[theme] || CHART_COLORS.dark;
@@ -285,21 +309,22 @@ function Timeline({ slots, recommendations, tz = "Europe/London", theme = "dark"
     Price:  s.price_score != null ? Math.round(s.price_score) : null,
   }));
 
-  const windowLines = (recommendations ?? [])
-    .filter(r => r.primary_start)
-    .map(r => ({ x: r.primary_start, label: r.task_label.split("(")[0].trim() }));
+  // Recommended windows drawn as shaded bands (start → end), far clearer than a line.
+  const windowBands = (recommendations ?? [])
+    .filter(r => r.primary_start && r.primary_end)
+    .map(r => ({ x1: r.primary_start, x2: r.primary_end }));
 
-  const tickInterval = Math.max(1, Math.floor(slots.length / 10));
+  // Fewer ticks on phones so the time labels never collide.
+  const tickInterval = Math.max(1, Math.floor(slots.length / (narrow ? 5 : 10)));
+  const cityLabel = tz.split("/")[1].replace("_", " ");
 
   return (
     <div className="chart-wrap">
       <div className="chart-header">
-        <h3 className="chart-title">
-          48-h grid · {tz.split("/")[1].replace("_", " ")}
-        </h3>
+        <h3 className="chart-title">{title || `48-h grid · ${cityLabel}`}</h3>
         <span className="chart-hint">drag handles to zoom · pan to explore</span>
       </div>
-      <ResponsiveContainer width="100%" height={288}>
+      <ResponsiveContainer width="100%" height={narrow ? 240 : 288}>
         <AreaChart data={chartData} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1">
@@ -316,6 +341,7 @@ function Timeline({ slots, recommendations, tz = "Europe/London", theme = "dark"
             dataKey="start"
             tickFormatter={v => fmtAxis(v, tz)}
             interval={tickInterval}
+            minTickGap={narrow ? 28 : 16}
             tick={{ fontSize: 11, fill: c.tick }}
             tickLine={false}
             axisLine={false}
@@ -328,6 +354,14 @@ function Timeline({ slots, recommendations, tz = "Europe/London", theme = "dark"
           />
           <Tooltip content={<CustomTooltip tz={tz} />} />
           <Legend wrapperStyle={{ fontSize: 12, color: c.tick, paddingTop: 6 }} />
+          {windowBands.map((w, i) => (
+            <ReferenceArea
+              key={i} x1={w.x1} x2={w.x2}
+              fill={c.yellow} fillOpacity={0.12}
+              stroke={c.yellow} strokeOpacity={0.4} strokeDasharray="4 3"
+              label={i === 0 ? { value: "▶ window", position: "insideTop", fill: c.yellow, fontSize: 10 } : undefined}
+            />
+          ))}
           <Area
             type="monotone" dataKey="Carbon"
             stroke={c.green} fill="url(#gc)"
@@ -340,13 +374,6 @@ function Timeline({ slots, recommendations, tz = "Europe/London", theme = "dark"
             strokeWidth={2} dot={false} connectNulls
             activeDot={{ r: 4, strokeWidth: 0, fill: c.blue }}
           />
-          {windowLines.map((w, i) => (
-            <ReferenceLine
-              key={i} x={w.x}
-              stroke={c.yellow} strokeDasharray="4 3" strokeWidth={2}
-              label={{ value: "▶", position: "insideTopRight", fill: c.yellow, fontSize: 10 }}
-            />
-          ))}
           <Brush
             dataKey="start"
             height={26}
@@ -507,6 +534,49 @@ function HistoryView({ plans, onFeedback, feedbackSent }) {
   );
 }
 
+// Live "grid right now" strip — current carbon intensity + a plain-language status.
+function GridNow({ slots, tz, currency }) {
+  if (!slots?.length) return null;
+  const now = Date.now();
+  const current = slots.find(s => new Date(s.start).getTime() >= now) ?? slots[slots.length - 1];
+  const { cls, label } = gridStatus(current.carbon_score);
+
+  return (
+    <div className={`grid-now ${cls}`}>
+      <span className="grid-now-dot" style={{ background: "currentColor" }} aria-hidden="true" />
+      <div className="grid-now-text">
+        <span className="grid-now-label">Grid right now</span>
+        <span className="grid-now-value">
+          <b>{Math.round(current.ci_gco2)}</b> gCO₂/kWh
+          {current.price_p != null && <> · {currency}{(current.price_p / 100).toFixed(2)}/kWh</>}
+        </span>
+      </div>
+      <span className="grid-now-status">{label}</span>
+    </div>
+  );
+}
+
+// Shown in the results column before the first plan: live grid status + 48-h chart.
+function LivePanel({ live, tz, currency, theme }) {
+  if (!live?.slots?.length) return null;
+  return (
+    <>
+      <GridNow slots={live.slots} tz={tz} currency={currency} />
+      <p className="live-intro-hint">
+        Add your tasks and tap <b>Get Recommendations</b> to find the cleanest, cheapest windows.
+        Here’s the live 48-hour grid in the meantime:
+      </p>
+      <Timeline
+        slots={live.slots}
+        recommendations={[]}
+        tz={tz}
+        theme={theme}
+        title={`Live 48-h grid · ${live.location}`}
+      />
+    </>
+  );
+}
+
 // ── main App ───────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -522,6 +592,7 @@ export default function App() {
   const [compare, setCompare] = useState(null);
   const [weekly,  setWeekly]  = useState(null);
   const [history, setHistory] = useState(null);
+  const [live,    setLive]    = useState(null);
   const [feedbackSent, setFeedbackSent] = useState(new Set());
 
   const [loading,    setLoading]    = useState(false);
@@ -541,6 +612,18 @@ export default function App() {
       return () => clearTimeout(t);
     }
   }, []);
+
+  // Fetch the live grid forecast on load + whenever the city changes, so the
+  // results column shows current conditions before any plan is run.
+  useEffect(() => {
+    let cancelled = false;
+    setLive(null);
+    fetch(`/api/forecast?city=${city}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => { if (!cancelled) setLive(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [city]);
 
   function closeTour() {
     setTourOpen(false);
@@ -675,6 +758,9 @@ export default function App() {
         </div>
       </header>
 
+      <div className="app-grid">
+        <div className="col-form">
+
       {/* City */}
       <div className="card" data-tour="city">
         <div className="card-title">City</div>
@@ -795,7 +881,7 @@ export default function App() {
               : "Compare modes"}
           </button>
           <button
-            className="btn-outline blue"
+            className="btn-outline"
             onClick={getWeekly}
             disabled={loading || tasks.length === 0}
           >
@@ -804,7 +890,7 @@ export default function App() {
               : "7-day outlook"}
           </button>
           <button
-            className="btn-outline purple"
+            className="btn-outline"
             onClick={getHistory}
             disabled={loading}
           >
@@ -814,6 +900,15 @@ export default function App() {
           </button>
         </div>
       </div>
+
+        </div>{/* .col-form */}
+
+        <div className="col-results">
+
+      {/* Live grid — shown until the user runs something */}
+      {!loading && !error && !result && !compare && !weekly && history === null && (
+        <LivePanel live={live} tz={cityTz} currency={currency} theme={theme} />
+      )}
 
       {/* Loading */}
       {loading && <LoadingResults action={lastAction} />}
@@ -864,6 +959,9 @@ export default function App() {
           feedbackSent={feedbackSent}
         />
       )}
+
+        </div>{/* .col-results */}
+      </div>{/* .app-grid */}
 
       {/* Onboarding tour */}
       {tourOpen && <Tour steps={TOUR_STEPS} onClose={closeTour} />}

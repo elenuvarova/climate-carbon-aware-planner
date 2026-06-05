@@ -117,6 +117,24 @@ body {
   transition: background var(--tx), color var(--tx);
 }
 
+/* Visible keyboard focus on every interactive element (WCAG 2.4.7).
+   :focus-visible only shows for keyboard/AT, so mouse users see nothing. */
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* Respect users who ask for less motion (WCAG 2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ─── Layout ─────────────────────────────────────────────────────────────── */
 
 .container {
@@ -128,6 +146,27 @@ body {
 @media (max-width: 600px) {
   .container { padding: var(--sp-5) var(--sp-4) var(--sp-10); }
 }
+
+/* Two-column workspace on wide screens: sticky input column + results column.
+   Below 1100px it collapses to a single stacked column (inputs, then results). */
+.app-grid {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+@media (min-width: 1100px) {
+  .container { max-width: 1180px; }
+  .app-grid {
+    grid-template-columns: 360px minmax(0, 1fr);
+    gap: var(--sp-5);
+    align-items: start;
+  }
+  .col-form { position: sticky; top: var(--sp-6); }
+  /* First card in each column already carries its own top margin via the flow */
+  .col-results > :first-child { margin-top: 0; }
+}
+
+.col-results { min-width: 0; }
 
 /* ─── Hero ───────────────────────────────────────────────────────────────── */
 
@@ -251,7 +290,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  min-height: 34px;
   border-radius: var(--r-full);
   border: 1px solid var(--border2);
   background: transparent;
@@ -428,35 +468,38 @@ body {
 .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
 .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* Secondary actions share one neutral style (no rainbow); the green primary
+   stays the single visual anchor. Hover hints the green accent. */
 .btn-outline {
   flex: 0 0 auto;
   padding: var(--sp-2) var(--sp-4);
   border-radius: var(--r-md);
-  border: 1px solid var(--green);
+  border: 1px solid var(--border2);
   background: transparent;
-  color: var(--green);
+  color: var(--text2);
   font-weight: 600;
   font-size: var(--t-sm);
   cursor: pointer;
-  transition: background var(--tx), opacity var(--tx);
+  transition: all var(--tx);
   min-height: 44px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--sp-2);
 }
 
-.btn-outline:hover:not(:disabled) { background: var(--green-dim); }
+.btn-outline:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-dim);
+}
 .btn-outline:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.btn-outline.blue  { border-color: var(--blue);   color: var(--blue);   }
-.btn-outline.blue:hover:not(:disabled)   { background: var(--blue-dim);   }
-
-.btn-outline.purple { border-color: var(--purple); color: var(--purple); }
-.btn-outline.purple:hover:not(:disabled) { background: var(--purple-dim); }
 
 @media (max-width: 520px) {
   .action-row { flex-direction: column; }
-  .btn-outline { flex: 1; justify-content: center; }
+  /* In a column the 180px flex-basis became the button HEIGHT — reset it. */
+  .btn-primary { flex: 0 0 auto; }
+  .btn-outline { flex: 1 1 auto; }
 }
 
 /* ─── Spinner ─────────────────────────────────────────────────────────────── */
@@ -655,10 +698,14 @@ body {
 }
 
 .saving-pill {
-  font-size: var(--t-xs);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  font-size: var(--t-sm);
   font-weight: 700;
-  padding: var(--sp-1) var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
   border-radius: var(--r-full);
+  letter-spacing: -0.01em;
 }
 
 .saving-pill.co2  { background: var(--pill-co2-bg);  color: var(--pill-co2-text);  }
@@ -900,12 +947,18 @@ body {
   border: 1px solid var(--border2);
   background: transparent;
   color: var(--text3);
-  font-size: var(--t-xs);
+  font-size: var(--t-sm);
   cursor: pointer;
   transition: all var(--tx);
   line-height: 1.4;
-  min-width: 28px;
+  min-width: 34px;
+  min-height: 34px;
   text-align: center;
+}
+
+@media (max-width: 520px) {
+  .feedback-btn { min-width: 40px; min-height: 40px; }
+  .seg-btn { min-height: 38px; }
 }
 
 .feedback-btn:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
@@ -1053,6 +1106,59 @@ body {
   color: #0a1a0f;
 }
 .tour-btn.primary:hover { filter: brightness(1.08); }
+
+/* ─── Live "grid now" badge ──────────────────────────────────────────────── */
+
+.grid-now {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.grid-now-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent);
+}
+.grid-now.clean    { color: var(--green);  }
+.grid-now.moderate { color: var(--yellow); }
+.grid-now.high     { color: var(--red);    }
+
+.grid-now-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+.grid-now-label {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text3);
+}
+
+.grid-now-value { font-size: var(--t-base); font-weight: 600; color: var(--text); }
+.grid-now-value b { color: currentColor; }
+
+.grid-now-status {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* Intro panel shown in the results column before the first plan is run */
+.live-intro-hint {
+  font-size: var(--t-sm);
+  color: var(--text3);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
 
 /* ─── Misc ───────────────────────────────────────────────────────────────── */
 
