@@ -147,7 +147,7 @@ body {
   .container { padding: var(--sp-5) var(--sp-4) var(--sp-10); }
 }
 
-/* Two-column workspace on wide screens: sticky input column + results column.
+/* Two-column workspace on wide screens: input column + results column.
    Below 1100px it collapses to a single stacked column (inputs, then results). */
 .app-grid {
   display: grid;
@@ -161,7 +161,6 @@ body {
     gap: var(--sp-5);
     align-items: start;
   }
-  .col-form { position: sticky; top: var(--sp-6); }
   /* First card in each column already carries its own top margin via the flow */
   .col-results > :first-child { margin-top: 0; }
 }

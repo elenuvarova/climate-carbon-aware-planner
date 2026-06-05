@@ -1,0 +1,49 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Climate & Carbon-Aware Planner" [level=1] [ref=e6]
+      - paragraph [ref=e7]: Find the best time for your tasks — low-carbon, low-cost, weather-ready
+    - generic [ref=e8]:
+      - button "Take a tour" [ref=e9] [cursor=pointer]: "? Tour"
+      - button "Switch to light theme" [ref=e10] [cursor=pointer]: ☀
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - generic [ref=e14]: City
+      - generic [ref=e15]:
+        - button "🇬🇧 London" [ref=e16] [cursor=pointer]
+        - button "🇫🇷 Paris" [ref=e17] [cursor=pointer]
+        - button "🇧🇪 Antwerp" [ref=e18] [cursor=pointer]
+    - generic [ref=e19]:
+      - generic [ref=e20]: Optimise for
+      - generic [ref=e21]:
+        - button "⚖️ Balanced" [ref=e22] [cursor=pointer]
+        - button "💚 Go Green" [ref=e23] [cursor=pointer]
+        - button "💰 Save Money" [ref=e24] [cursor=pointer]
+    - generic [ref=e25]:
+      - generic [ref=e26]: Tasks
+      - generic [ref=e27]:
+        - button "🌬️ Laundry (air-dry) ✕" [pressed] [ref=e28] [cursor=pointer]
+        - button "🔄 Laundry + dryer" [ref=e29] [cursor=pointer]
+        - button "🍽️ Dishwasher" [ref=e30] [cursor=pointer]
+        - button "⚡ EV charging" [ref=e31] [cursor=pointer]
+        - button "🪟 Ventilate" [ref=e32] [cursor=pointer]
+      - generic [ref=e34]:
+        - generic [ref=e35]: 🌬️ Laundry (air-dry)
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e38]: Duration
+            - generic [ref=e39]:
+              - spinbutton "Duration" [ref=e40]: "120"
+              - generic [ref=e41]: min
+          - generic [ref=e42]:
+            - generic [ref=e43]: Window
+            - generic [ref=e44]:
+              - textbox [ref=e45]: 08:00
+              - generic [ref=e46]: –
+              - textbox [ref=e47]: 20:00
+        - button "Remove 🌬️ Laundry (air-dry)" [ref=e48] [cursor=pointer]: ✕
+      - generic [ref=e49]:
+        - button "Get Recommendations →" [ref=e50] [cursor=pointer]
+        - button "Compare modes" [ref=e51] [cursor=pointer]
+        - button "7-day outlook" [ref=e52] [cursor=pointer]
+        - button "History" [ref=e53] [cursor=pointer]
